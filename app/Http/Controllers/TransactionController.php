@@ -36,9 +36,7 @@ class TransactionController extends Controller
 
         DB::transaction(function () use ($request, $data) {
             $txn = $request->user()->transactions()->create($data);
-            if ($txn->type === 'transfer') {
-                $this->applyTransfer((int) $txn->account_id, (int) $txn->to_account_id, (float) $txn->amount);
-            }
+            $this->applyBalance($txn);
         });
 
         return back()->with('success', $data['type'] === 'transfer' ? 'Prevod pridaný.' : 'Transakcia pridaná.');
@@ -51,17 +49,9 @@ class TransactionController extends Controller
         $data = $this->validated($request);
 
         DB::transaction(function () use ($transaction, $data) {
-            // vráť späť starý efekt prevodu
-            if ($transaction->type === 'transfer' && $transaction->to_account_id) {
-                $this->revertTransfer((int) $transaction->account_id, (int) $transaction->to_account_id, (float) $transaction->amount);
-            }
-
+            $this->revertBalance($transaction);   // vráť späť starý efekt
             $transaction->update($data);
-
-            // aplikuj nový efekt prevodu
-            if ($transaction->type === 'transfer' && $transaction->to_account_id) {
-                $this->applyTransfer((int) $transaction->account_id, (int) $transaction->to_account_id, (float) $transaction->amount);
-            }
+            $this->applyBalance($transaction);     // aplikuj nový efekt
         });
 
         return back()->with('success', 'Transakcia upravená.');
@@ -72,27 +62,44 @@ class TransactionController extends Controller
         abort_unless($transaction->user_id === $request->user()->id, 403);
 
         DB::transaction(function () use ($transaction) {
-            if ($transaction->type === 'transfer' && $transaction->to_account_id) {
-                $this->revertTransfer((int) $transaction->account_id, (int) $transaction->to_account_id, (float) $transaction->amount);
-            }
+            $this->revertBalance($transaction);
             $transaction->delete();
         });
 
         return back()->with('success', 'Transakcia zmazaná.');
     }
 
-    /** Prevod: zdroj − suma, cieľ + suma. */
-    protected function applyTransfer(int $fromId, int $toId, float $amount): void
+    /**
+     * Premietne transakciu do zostatkov účtov:
+     *  príjem  → účet + suma
+     *  výdavok → účet − suma
+     *  prevod  → zdroj − suma, cieľ + suma
+     */
+    protected function applyBalance(Transaction $t): void
     {
-        Account::whereKey($fromId)->decrement('balance', $amount);
-        Account::whereKey($toId)->increment('balance', $amount);
+        $amount = (float) $t->amount;
+        if ($t->type === 'income') {
+            Account::whereKey($t->account_id)->increment('balance', $amount);
+        } elseif ($t->type === 'expense') {
+            Account::whereKey($t->account_id)->decrement('balance', $amount);
+        } elseif ($t->type === 'transfer' && $t->to_account_id) {
+            Account::whereKey($t->account_id)->decrement('balance', $amount);
+            Account::whereKey($t->to_account_id)->increment('balance', $amount);
+        }
     }
 
-    /** Vráti prevod späť: zdroj + suma, cieľ − suma. */
-    protected function revertTransfer(int $fromId, int $toId, float $amount): void
+    /** Vráti efekt transakcie späť (opak applyBalance). */
+    protected function revertBalance(Transaction $t): void
     {
-        Account::whereKey($fromId)->increment('balance', $amount);
-        Account::whereKey($toId)->decrement('balance', $amount);
+        $amount = (float) $t->amount;
+        if ($t->type === 'income') {
+            Account::whereKey($t->account_id)->decrement('balance', $amount);
+        } elseif ($t->type === 'expense') {
+            Account::whereKey($t->account_id)->increment('balance', $amount);
+        } elseif ($t->type === 'transfer' && $t->to_account_id) {
+            Account::whereKey($t->account_id)->increment('balance', $amount);
+            Account::whereKey($t->to_account_id)->decrement('balance', $amount);
+        }
     }
 
     /** @return array<string, mixed> */
