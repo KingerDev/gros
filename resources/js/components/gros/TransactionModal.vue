@@ -105,12 +105,21 @@ const title = computed(() => {
 });
 const submitLabel = computed(() => (editing.value ? 'Uložiť zmeny' : isTransfer.value ? 'Pridať prevod' : 'Pridať transakciu'));
 
-function submit() {
+function submit(andAnother = false) {
     form
         .transform((data) => ({ ...data, amount: parseFloat(String(data.amount).replace(/\s/g, '').replace(',', '.')) || 0 }))
         .submit(editing.value ? 'put' : 'post', editing.value ? `/transactions/${props.transaction!.id}` : '/transactions', {
             preserveScroll: true,
-            onSuccess: () => emit('close'),
+            preserveState: andAnother ? true : undefined,
+            onSuccess: () => {
+                if (andAnother && !editing.value) {
+                    // ponechá typ, kategóriu, účet aj dátum — vyčistí len sumu a poznámku
+                    form.amount = '';
+                    form.note = '';
+                } else {
+                    emit('close');
+                }
+            },
         });
 }
 
@@ -200,13 +209,23 @@ function destroy() {
                 <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14" /></svg>
             </button>
             <button
+                v-if="!editing"
+                type="button"
+                style="flex: 1; font-weight: 800; font-size: 14px; padding: 15px 10px; border-radius: 14px; background: #f1efe8; color: #61637a"
+                :style="{ opacity: form.processing ? 0.7 : 1 }"
+                :disabled="form.processing"
+                @click="submit(true)"
+            >
+                + Pridať a ďalšiu
+            </button>
+            <button
                 type="button"
                 style="flex: 1; color: #fff; font-weight: 800; font-size: 15px; padding: 15px; border-radius: 14px"
                 :style="{ background: primary, boxShadow: `0 10px 22px ${primarySoft}`, opacity: form.processing ? 0.7 : 1 }"
                 :disabled="form.processing"
-                @click="submit"
+                @click="submit(false)"
             >
-                {{ submitLabel }}
+                {{ editing ? submitLabel : 'Pridať' }}
             </button>
         </div>
     </Modal>
