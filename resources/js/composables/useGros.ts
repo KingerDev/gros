@@ -21,7 +21,7 @@ export function useGros() {
     const page = usePage();
 
     const settings = computed<GrosSettings>(() => (page.props.settings as GrosSettings) ?? { accent: '#6c5ce7', showDecimals: true, privacyMode: false });
-    const ref = computed<GrosRef>(() => page.props.ref as GrosRef);
+    const ref = computed<GrosRef>(() => page.props.catalog as GrosRef);
     const summary = computed<GrosSummary | null>(() => (page.props.summary as GrosSummary) ?? null);
 
     const categories = computed<Category[]>(() => (page.props.categories as Category[]) ?? []);

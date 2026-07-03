@@ -46,7 +46,9 @@ class HandleInertiaRequests extends Middleware
             'summary' => $user ? $this->summary($user) : null,
             'categories' => $user ? $this->categories($user) : [],
             'recentCategoryIds' => $user ? $this->recentCategoryIds($user) : [],
-            'ref' => [
+            // POZOR: nesmie sa volať 'ref' — Inertia spreadne page-propy na vnode
+            // stránky a Vue by 'ref' vyložil ako template ref (crash v prode).
+            'catalog' => [
                 'kindLabels' => config('gros.kind_labels'),
                 'palette' => config('gros.palette'),
                 'accentOptions' => config('gros.accent_options'),
