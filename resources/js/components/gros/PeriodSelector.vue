@@ -59,6 +59,16 @@ const stepperLabel = computed(() => {
     return props.period.ref ?? '';
 });
 
+// roky s dátami (na priamy výber roka)
+const years = computed(() => {
+    const min = Number(minYm.value.slice(0, 4));
+    const max = Number(maxYm.value.slice(0, 4));
+    const out: number[] = [];
+    for (let y = max; y >= min; y--) out.push(y);
+    return out;
+});
+const curYear = computed(() => Number(props.period.ref ?? new Date().getFullYear()));
+
 function chip(active: boolean) {
     return {
         padding: '8px 14px',
@@ -81,7 +91,19 @@ function chip(active: boolean) {
         <button type="button" :style="chip(period.key === 'all')" @click="go({ period: 'all' })">Celé</button>
 
         <!-- krokovanie -->
-        <div v-if="period.key === 'month' || period.key === 'year'" style="display: flex; align-items: center; gap: 4px; background: #fff; border-radius: 11px; padding: 4px; box-shadow: 0 2px 8px rgba(60, 55, 40, 0.05); margin-left: 4px">
+        <div
+            v-if="period.key === 'month' || period.key === 'year'"
+            style="
+                display: flex;
+                align-items: center;
+                gap: 4px;
+                background: #fff;
+                border-radius: 11px;
+                padding: 4px;
+                box-shadow: 0 2px 8px rgba(60, 55, 40, 0.05);
+                margin-left: 4px;
+            "
+        >
             <button
                 type="button"
                 style="width: 30px; height: 30px; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: #61637a"
@@ -89,9 +111,40 @@ function chip(active: boolean) {
                 :style="{ opacity: (period.key === 'month' ? canPrevM : canPrevY) ? 1 : 0.3 }"
                 @click="period.key === 'month' ? stepMonth(-1) : stepYear(-1)"
             >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6" /></svg>
+                <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2.4"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                >
+                    <path d="M15 18l-6-6 6-6" />
+                </svg>
             </button>
-            <span style="font-size: 13px; font-weight: 700; min-width: 96px; text-align: center; white-space: nowrap">{{ stepperLabel }}</span>
+            <span v-if="period.key === 'month'" style="font-size: 13px; font-weight: 700; min-width: 96px; text-align: center; white-space: nowrap">{{
+                stepperLabel
+            }}</span>
+            <select
+                v-else
+                :value="curYear"
+                style="
+                    font-size: 13px;
+                    font-weight: 700;
+                    min-width: 96px;
+                    text-align: center;
+                    background: transparent;
+                    border: none;
+                    cursor: pointer;
+                    appearance: none;
+                    color: inherit;
+                "
+                @change="go({ period: 'year', ref: ($event.target as HTMLSelectElement).value })"
+            >
+                <option v-for="y in years" :key="y" :value="y">{{ y }}</option>
+            </select>
             <button
                 type="button"
                 style="width: 30px; height: 30px; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: #61637a"
@@ -99,7 +152,18 @@ function chip(active: boolean) {
                 :style="{ opacity: (period.key === 'month' ? canNextM : canNextY) ? 1 : 0.3 }"
                 @click="period.key === 'month' ? stepMonth(1) : stepYear(1)"
             >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6" /></svg>
+                <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2.4"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                >
+                    <path d="M9 18l6-6-6-6" />
+                </svg>
             </button>
         </div>
     </div>

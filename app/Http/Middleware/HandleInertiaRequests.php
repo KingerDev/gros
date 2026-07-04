@@ -74,10 +74,12 @@ class HandleInertiaRequests extends Middleware
             $portfolio += (float) $inv->units * (float) $inv->current_price;
         }
 
+        $debt = (float) $user->loans()->where('kind', 'owe')->sum('balance');
+
         return [
             'cash' => $cash,
             'portfolio' => $portfolio,
-            'netWorth' => $cash + $portfolio,
+            'netWorth' => $cash + $portfolio - $debt,
             'accountCount' => $user->accounts()->count(),
         ];
     }

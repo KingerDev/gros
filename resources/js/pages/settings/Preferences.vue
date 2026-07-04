@@ -4,7 +4,11 @@ import { useGros } from '@/composables/useGros';
 import { Head, Link, useForm } from '@inertiajs/vue3';
 import { gradient } from '@/lib/gros';
 
-const { ref: gref, settings } = useGros();
+const { ref: gref, settings, eur, primary } = useGros();
+
+const props = defineProps<{
+    plan: { monthlyIncome: number | null; savingsGoal: number; estimate: number };
+}>();
 
 const form = useForm({
     accent: settings.value.accent,
@@ -16,6 +20,20 @@ function save() {
     form.put('/settings/preferences', { preserveScroll: true });
 }
 
+const planForm = useForm({
+    monthly_income: props.plan.monthlyIncome !== null ? String(props.plan.monthlyIncome) : '',
+    savings_goal: props.plan.savingsGoal ? String(props.plan.savingsGoal) : '',
+});
+
+function savePlan() {
+    planForm
+        .transform((d) => ({
+            monthly_income: String(d.monthly_income).trim() === '' ? null : parseFloat(String(d.monthly_income).replace(/\s/g, '').replace(',', '.')),
+            savings_goal: String(d.savings_goal).trim() === '' ? 0 : parseFloat(String(d.savings_goal).replace(/\s/g, '').replace(',', '.')),
+        }))
+        .put('/settings/plan', { preserveScroll: true });
+}
+
 const cardShadow = '0 4px 18px rgba(60,55,40,.05)';
 </script>
 
@@ -23,6 +41,41 @@ const cardShadow = '0 4px 18px rgba(60,55,40,.05)';
     <Head title="Nastavenia" />
     <GrosLayout title="Nastavenia" subtitle="Vzhľad a súkromie">
         <div class="gros-rise" style="max-width: 640px">
+            <!-- Mesačný plán (safe-to-spend) -->
+            <div style="background: #fff; border-radius: 20px; padding: 24px; margin-bottom: 14px" :style="{ boxShadow: cardShadow }">
+                <div class="font-display" style="font-weight: 700; font-size: 17px; letter-spacing: -0.3px">Mesačný plán míňania 🎯</div>
+                <div style="font-size: 13px; color: #8a8c9a; font-weight: 500; margin-top: 4px">Podľa toho ti Prehľad počíta „koľko môžeš ešte minúť" a denný limit.</div>
+
+                <div style="display: flex; gap: 14px; margin-top: 18px; flex-wrap: wrap">
+                    <div style="flex: 1; min-width: 200px">
+                        <label class="gros-label">Mesačný príjem (čistý)</label>
+                        <div class="gros-amount-wrap">
+                            <input v-model="planForm.monthly_income" type="text" inputmode="decimal" placeholder="odhad z histórie" class="gros-amount" style="font-size: 18px" />
+                            <span style="font-weight: 800; font-size: 16px; color: #b8b6ac">€</span>
+                        </div>
+                        <div style="font-size: 11.5px; color: #9a9cab; font-weight: 600; margin-top: 6px">Prázdne = odhad z histórie (~{{ eur(plan.estimate) }}/mes.)</div>
+                    </div>
+                    <div style="flex: 1; min-width: 200px">
+                        <label class="gros-label">Sporiaci cieľ / mesiac</label>
+                        <div class="gros-amount-wrap">
+                            <input v-model="planForm.savings_goal" type="text" inputmode="decimal" placeholder="0" class="gros-amount" style="font-size: 18px" />
+                            <span style="font-weight: 800; font-size: 16px; color: #b8b6ac">€</span>
+                        </div>
+                        <div style="font-size: 11.5px; color: #9a9cab; font-weight: 600; margin-top: 6px">Koľko chceš každý mesiac odložiť bokom.</div>
+                    </div>
+                </div>
+
+                <button
+                    type="button"
+                    style="margin-top: 18px; color: #fff; font-weight: 800; font-size: 14px; padding: 12px 22px; border-radius: 13px"
+                    :style="{ background: primary, opacity: planForm.processing ? 0.7 : 1 }"
+                    :disabled="planForm.processing"
+                    @click="savePlan"
+                >
+                    Uložiť plán
+                </button>
+            </div>
+
             <!-- Accent -->
             <div style="background: #fff; border-radius: 20px; padding: 24px" :style="{ boxShadow: cardShadow }">
                 <div class="font-display" style="font-weight: 700; font-size: 17px; letter-spacing: -0.3px">Akcentová farba</div>

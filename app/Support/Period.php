@@ -68,6 +68,32 @@ class Period
         };
     }
 
+    /** Predchádzajúce obdobie rovnakej dĺžky (na porovnanie ▲/▼). Null pre 'all' a neúplný custom. */
+    public function previous(): ?self
+    {
+        if (! $this->from || ! $this->to) {
+            return null;
+        }
+
+        if ($this->key === 'month') {
+            $m = $this->from->subMonthsNoOverflow(1);
+
+            return new self('month', $m->startOfMonth(), $m->endOfMonth(), self::monthLabel($m), $m->format('Y-m'));
+        }
+
+        if ($this->key === 'year') {
+            $y = $this->from->subYear();
+
+            return new self('year', $y->startOfYear(), $y->endOfYear(), (string) $y->year, (string) $y->year);
+        }
+
+        $days = $this->from->diffInDays($this->to);
+        $to = $this->from->subDay();
+        $from = $to->subDays($days);
+
+        return new self($this->key, $from, $to, $from->format('d.m.Y').' – '.$to->format('d.m.Y'));
+    }
+
     /** Aplikuje rozsah na query (stĺpec date). */
     public function apply($query, string $column = 'date')
     {

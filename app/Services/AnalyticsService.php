@@ -115,6 +115,116 @@ class AnalyticsService
             ->map(fn ($r) => ['merchant' => $r->merchant, 'amount' => (float) $r->amount, 'count' => (int) $r->cnt]);
     }
 
+    /** „Mesiac v kocke" — súhrn posledného ukončeného mesiaca vs. mesiac predtým. */
+    public function monthReport(User $user): ?array
+    {
+        $month = CarbonImmutable::today()->subMonthsNoOverflow(1)->startOfMonth();
+        $prev = $month->subMonthsNoOverflow(1);
+
+        $cur = $this->monthTotals($user, $month);
+        if ($cur['count'] === 0) {
+            return null;
+        }
+        $before = $this->monthTotals($user, $prev);
+
+        $range = [$month->toDateString(), $month->endOfMonth()->toDateString()];
+
+        $top = $user->transactions()->where('type', 'expense')->whereNotNull('category_id')
+            ->whereBetween('date', $range)
+            ->selectRaw('category_id, SUM(amount) as amount')
+            ->groupBy('category_id')->orderByDesc('amount')->first();
+
+        $big = $user->transactions()->where('type', 'expense')
+            ->whereBetween('date', $range)
+            ->orderByDesc('amount')->first();
+
+        $pct = fn (float $now, float $base) => $base > 0 ? round(($now - $base) / $base * 100, 1) : null;
+
+        return [
+            'label' => Period::monthLabel($month),
+            'prevLabel' => Period::monthLabel($prev),
+            'income' => $cur['income'],
+            'expense' => $cur['expense'],
+            'net' => $cur['net'],
+            'rate' => $cur['rate'],
+            'count' => $cur['count'],
+            'incomeDeltaPct' => $pct($cur['income'], $before['income']),
+            'expenseDeltaPct' => $pct($cur['expense'], $before['expense']),
+            'topCategory' => $top ? ['category_id' => (int) $top->category_id, 'amount' => (float) $top->amount] : null,
+            'biggestExpense' => $big ? [
+                'note' => $big->note,
+                'category_id' => $big->category_id,
+                'amount' => (float) $big->amount,
+                'date' => $big->date->toDateString(),
+            ] : null,
+        ];
+    }
+
+    /** @return array{income: float, expense: float, net: float, rate: int, count: int} */
+    protected function monthTotals(User $user, CarbonImmutable $month): array
+    {
+        $rows = $user->transactions()->where('type', '!=', 'transfer')
+            ->whereBetween('date', [$month->startOfMonth()->toDateString(), $month->endOfMonth()->toDateString()])
+            ->get(['type', 'amount']);
+
+        $income = (float) $rows->where('type', 'income')->sum('amount');
+        $expense = (float) $rows->where('type', 'expense')->sum('amount');
+
+        return [
+            'income' => $income,
+            'expense' => $expense,
+            'net' => $income - $expense,
+            'rate' => $income > 0 ? (int) round(($income - $expense) / $income * 100) : 0,
+            'count' => $rows->count(),
+        ];
+    }
+
+    /**
+     * Fixné vs. voľné výdavky po mesiacoch. „Fixné" = opakujúce sa platby:
+     * rovnaká poznámka (znormalizovaná) aspoň v 3 rôznych mesiacoch —
+     * typicky nájom, energie, predplatné, splátky.
+     */
+    public function fixedVsVariable(User $user, int $months = 12): array
+    {
+        $today = CarbonImmutable::today();
+        $start = $today->startOfMonth()->subMonths($months - 1);
+
+        $rows = $user->transactions()
+            ->where('type', 'expense')
+            ->where('date', '>=', $start->toDateString())
+            ->get(['amount', 'note', 'date'])
+            ->map(fn ($t) => [
+                'ym' => $t->date->format('Y-m'),
+                'key' => mb_strtolower(trim((string) $t->note)),
+                'amount' => (float) $t->amount,
+            ]);
+
+        $recurring = $rows->filter(fn ($r) => $r['key'] !== '')
+            ->groupBy('key')
+            ->filter(fn ($g) => $g->pluck('ym')->unique()->count() >= 3)
+            ->keys()
+            ->all();
+        $recurring = array_flip($recurring);
+
+        $series = [];
+        for ($i = 0; $i < $months; $i++) {
+            $m = $start->addMonths($i);
+            $ym = $m->format('Y-m');
+            $monthRows = $rows->where('ym', $ym);
+            $total = (float) $monthRows->sum('amount');
+            $fixed = (float) $monthRows->filter(fn ($r) => isset($recurring[$r['key']]))->sum('amount');
+            $series[] = [
+                'ym' => $ym,
+                'label' => $this->shortMonth($m),
+                'fixed' => round($fixed, 2),
+                'variable' => round($total - $fixed, 2),
+                'share' => $total > 0 ? (int) round($fixed / $total * 100) : 0,
+            ];
+        }
+
+        return ['series' => $series, 'recurringCount' => count($recurring)];
+    }
+
     /** Automatické postrehy — počítané voči poslednému mesiacu s dátami. */
     public function insights(User $user): array
     {

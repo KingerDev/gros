@@ -9,7 +9,10 @@ return new class extends Migration
 {
     public function up(): void
     {
-        DB::statement("ALTER TABLE transactions MODIFY COLUMN type ENUM('income','expense','transfer') NOT NULL DEFAULT 'expense'");
+        // MODIFY COLUMN je MySQL syntax; sqlite (testy) enum aj tak ukladá ako varchar
+        if (DB::getDriverName() === 'mysql') {
+            DB::statement("ALTER TABLE transactions MODIFY COLUMN type ENUM('income','expense','transfer') NOT NULL DEFAULT 'expense'");
+        }
 
         Schema::table('transactions', function (Blueprint $table) {
             $table->foreignId('to_account_id')->nullable()->after('account_id')->constrained('accounts')->nullOnDelete();
@@ -22,6 +25,8 @@ return new class extends Migration
             $table->dropConstrainedForeignId('to_account_id');
         });
 
-        DB::statement("ALTER TABLE transactions MODIFY COLUMN type ENUM('income','expense') NOT NULL DEFAULT 'expense'");
+        if (DB::getDriverName() === 'mysql') {
+            DB::statement("ALTER TABLE transactions MODIFY COLUMN type ENUM('income','expense') NOT NULL DEFAULT 'expense'");
+        }
     }
 };

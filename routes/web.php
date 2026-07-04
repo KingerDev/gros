@@ -5,6 +5,7 @@ use App\Http\Controllers\AnalyticsController;
 use App\Http\Controllers\BudgetController;
 use App\Http\Controllers\CategoryController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\GoalController;
 use App\Http\Controllers\InvestmentController;
 use App\Http\Controllers\LoanController;
 use App\Http\Controllers\SubscriptionController;
@@ -57,6 +58,11 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('loans', [LoanController::class, 'store'])->name('loans.store');
     Route::put('loans/{loan}', [LoanController::class, 'update'])->name('loans.update');
     Route::delete('loans/{loan}', [LoanController::class, 'destroy'])->name('loans.destroy');
+
+    // Sporiace ciele
+    Route::post('goals', [GoalController::class, 'store'])->name('goals.store');
+    Route::put('goals/{goal}', [GoalController::class, 'update'])->name('goals.update');
+    Route::delete('goals/{goal}', [GoalController::class, 'destroy'])->name('goals.destroy');
 
     // Rozpočty
     Route::get('budgets', [BudgetController::class, 'index'])->name('budgets.index');

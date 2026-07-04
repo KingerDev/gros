@@ -25,6 +25,8 @@ class User extends Authenticatable
         'accent',
         'show_decimals',
         'privacy_mode',
+        'monthly_income',
+        'savings_goal',
     ];
 
     public function accounts(): HasMany
@@ -62,6 +64,11 @@ class User extends Authenticatable
         return $this->hasMany(Category::class);
     }
 
+    public function goals(): HasMany
+    {
+        return $this->hasMany(Goal::class);
+    }
+
     /**
      * The attributes that should be hidden for serialization.
      *
@@ -84,6 +91,8 @@ class User extends Authenticatable
             'password' => 'hashed',
             'show_decimals' => 'boolean',
             'privacy_mode' => 'boolean',
+            'monthly_income' => 'decimal:2',
+            'savings_goal' => 'decimal:2',
         ];
     }
 }

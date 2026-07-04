@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\InvestmentTransaction;
 use App\Models\User;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
@@ -36,6 +37,116 @@ class FinanceService
     public function cash(User $user): float
     {
         return (float) $user->accounts()->sum('balance');
+    }
+
+    /** Najbližšie platby v horizonte N dní: predplatné + splátky úverov, zoradené podľa dátumu. */
+    public function upcomingPayments(User $user, int $days = 30): array
+    {
+        $limit = CarbonImmutable::today()->addDays($days)->toDateString();
+
+        $subs = $user->subscriptions()
+            ->whereNotNull('next_payment')
+            ->where('next_payment', '<=', $limit)
+            ->get(['name', 'amount', 'next_payment', 'color'])
+            ->map(fn ($s) => [
+                'name' => $s->name,
+                'amount' => (float) $s->amount,
+                'date' => $s->next_payment->toDateString(),
+                'color' => $s->color,
+                'kind' => 'subscription',
+            ]);
+
+        $loans = $user->loans()
+            ->where('kind', 'owe')
+            ->where('payment', '>', 0)
+            ->whereNotNull('next_payment')
+            ->where('next_payment', '<=', $limit)
+            ->get(['name', 'payment', 'next_payment', 'color'])
+            ->map(fn ($l) => [
+                'name' => $l->name,
+                'amount' => (float) $l->payment,
+                'date' => $l->next_payment->toDateString(),
+                'color' => $l->color,
+                'kind' => 'loan',
+            ]);
+
+        $items = $subs->concat($loans)->sortBy('date')->values();
+
+        return [
+            'items' => $items->take(8)->all(),
+            'count' => $items->count(),
+            'total' => round((float) $items->sum('amount'), 2),
+            'days' => $days,
+        ];
+    }
+
+    /** Finančná rezerva: koľko mesiacov priemerných výdavkov pokryje hotovosť. */
+    public function reserve(User $user): array
+    {
+        $avg = $this->avgMonthlyExpense($user);
+        $cash = $this->cash($user);
+
+        return [
+            'avgExpense' => round($avg, 2),
+            'months' => $avg > 0 ? round($cash / $avg, 1) : null,
+        ];
+    }
+
+    /** Priemerné mesačné výdavky za posledných 6 ukončených mesiacov s dátami. */
+    protected function avgMonthlyExpense(User $user): float
+    {
+        $today = CarbonImmutable::today();
+        $sum = 0.0;
+        $counted = 0;
+
+        for ($i = 1; $i <= 6; $i++) {
+            $m = $today->subMonthsNoOverflow($i);
+            $exp = (float) $user->transactions()
+                ->where('type', 'expense')
+                ->whereBetween('date', [$m->startOfMonth()->toDateString(), $m->endOfMonth()->toDateString()])
+                ->sum('amount');
+            if ($exp > 0) {
+                $sum += $exp;
+                $counted++;
+            }
+        }
+
+        return $counted > 0 ? $sum / $counted : 0.0;
+    }
+
+    /** Čerpanie rozpočtov v ich aktuálnom období + projekcia tempa. */
+    public function budgetProgress(User $user): Collection
+    {
+        $today = CarbonImmutable::today();
+
+        return $user->budgets()->get()->map(function ($b) use ($user, $today) {
+            [$from, $total] = match ($b->period) {
+                'week' => [$today->startOfWeek(), 7],
+                'year' => [$today->startOfYear(), (int) $today->daysInYear],
+                default => [$today->startOfMonth(), (int) $today->daysInMonth],
+            };
+
+            $spent = (float) $user->transactions()
+                ->where('type', 'expense')
+                ->where('category_id', $b->category_id)
+                ->where('date', '>=', $from->toDateString())
+                ->sum('amount');
+
+            // Projekcia tempa: koľko sa minie do konca obdobia pri aktuálnom tempe
+            $elapsed = max(1, $from->diffInDays($today) + 1);
+            $projected = $spent / $elapsed * $total;
+
+            return [
+                'id' => $b->id,
+                'category_id' => $b->category_id,
+                'limit_amount' => (float) $b->limit_amount,
+                'period' => $b->period,
+                'spent' => $spent,
+                'projected' => round($projected, 2),
+                'elapsed' => $elapsed,
+                'total' => $total,
+            ];
+        })->values();
     }
 
     /** Príjmy/výdavky za posledných N dní (vrátane dneška). */
@@ -99,15 +210,32 @@ class FinanceService
         return $out;
     }
 
-    /** Príjmy/výdavky/čistý tok po rokoch (medziročne). */
+    /** Príjmy/výdavky/čistý tok + investované (nákupy lots) po rokoch (medziročne). */
     public function yearlyHistory(User $user): Collection
     {
         $rows = $user->transactions()->get(['type', 'amount', 'date']);
 
-        return $rows->groupBy(fn ($t) => $t->date->year)
-            ->map(function ($yearRows, $year) {
+        $lots = InvestmentTransaction::query()
+            ->whereIn('investment_id', $user->investments()->select('id'))
+            ->get(['type', 'units', 'price', 'date']);
+
+        $txYears = $rows->groupBy(fn ($t) => $t->date->year);
+        $lotYears = $lots->groupBy(fn ($l) => $l->date->year);
+
+        return $txYears->keys()
+            ->merge($lotYears->keys())
+            ->unique()
+            ->sort()
+            ->values()
+            ->map(function ($year) use ($txYears, $lotYears) {
+                $yearRows = $txYears->get($year, collect());
                 $income = (float) $yearRows->where('type', 'income')->sum('amount');
                 $expense = (float) $yearRows->where('type', 'expense')->sum('amount');
+
+                $yearLots = $lotYears->get($year, collect());
+                $lotValue = fn ($l) => (float) $l->units * (float) $l->price;
+                $invested = (float) $yearLots->where('type', 'buy')->sum($lotValue);
+                $sold = (float) $yearLots->where('type', 'sell')->sum($lotValue);
 
                 return [
                     'year' => (int) $year,
@@ -115,10 +243,11 @@ class FinanceService
                     'expense' => $expense,
                     'net' => $income - $expense,
                     'rate' => $income > 0 ? ($income - $expense) / $income * 100 : 0,
+                    'invested' => round($invested, 2),
+                    'sold' => round($sold, 2),
+                    'investedPct' => $income > 0 ? round($invested / $income * 100, 1) : null,
                 ];
-            })
-            ->sortBy('year')
-            ->values();
+            });
     }
 
     protected function monthLabel(int $month): string

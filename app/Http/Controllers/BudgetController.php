@@ -3,7 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Budget;
-use Carbon\CarbonImmutable;
+use App\Services\FinanceService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -12,33 +12,9 @@ use Inertia\Response;
 
 class BudgetController extends Controller
 {
-    public function index(Request $request): Response
+    public function index(Request $request, FinanceService $finance): Response
     {
-        $user = $request->user();
-        $budgets = $user->budgets()->get();
-        $today = CarbonImmutable::today();
-
-        $rows = $budgets->map(function (Budget $b) use ($user, $today) {
-            $from = match ($b->period) {
-                'week' => $today->startOfWeek(),
-                'year' => $today->startOfYear(),
-                default => $today->startOfMonth(),
-            };
-
-            $spent = (float) $user->transactions()
-                ->where('type', 'expense')
-                ->where('category_id', $b->category_id)
-                ->where('date', '>=', $from->toDateString())
-                ->sum('amount');
-
-            return [
-                'id' => $b->id,
-                'category_id' => $b->category_id,
-                'limit_amount' => (float) $b->limit_amount,
-                'period' => $b->period,
-                'spent' => $spent,
-            ];
-        })->values();
+        $rows = $finance->budgetProgress($request->user());
 
         return Inertia::render('gros/Budgets', [
             'budgets' => $rows,

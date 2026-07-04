@@ -12,6 +12,9 @@ interface Budget {
     limit_amount: number;
     period: string;
     spent: number;
+    projected: number;
+    elapsed: number;
+    total: number;
 }
 
 const props = defineProps<{
@@ -40,6 +43,17 @@ function openEdit(b: Budget) {
 
 function pct(b: Budget): number {
     return b.limit_amount > 0 ? (b.spent / b.limit_amount) * 100 : 0;
+}
+function pace(b: Budget) {
+    const midPeriod = b.elapsed < b.total; // ešte nie je koniec obdobia
+    const alreadyOver = b.spent > b.limit_amount;
+    const willOver = !alreadyOver && b.projected > b.limit_amount;
+    return {
+        show: midPeriod && !alreadyOver && b.spent > 0,
+        willOver,
+        projected: b.projected,
+        overBy: b.projected - b.limit_amount,
+    };
 }
 function status(b: Budget) {
     const over = b.spent > b.limit_amount;
@@ -122,6 +136,11 @@ function status(b: Budget) {
                     <div style="display: flex; justify-content: space-between; font-size: 12px; font-weight: 600; margin-top: 8px">
                         <span :style="{ color: catColor(b.category_id) }">{{ num(pct(b)) }} % vyčerpané</span>
                         <span :style="{ color: status(b).leftColor }">{{ status(b).leftLabel }}</span>
+                    </div>
+                    <div v-if="pace(b).show" style="display: flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 700; margin-top: 10px; padding: 7px 10px; border-radius: 10px" :style="{ background: pace(b).willOver ? '#fdf1dc' : '#f5f4ef', color: pace(b).willOver ? '#b5730f' : '#9a9cab' }">
+                        <span>{{ pace(b).willOver ? '⚠️' : '📈' }}</span>
+                        <span v-if="pace(b).willOver">Pri tomto tempe prekročíš o ~{{ eur(pace(b).overBy) }}</span>
+                        <span v-else>Pri tomto tempe: ~{{ eur(pace(b).projected) }} do konca obdobia</span>
                     </div>
                 </div>
 

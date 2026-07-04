@@ -25,6 +25,8 @@ class AnalyticsController extends Controller
             'monthlySeries' => $analytics->monthlySeries($user, 24),
             'topMerchants' => $analytics->topMerchants($user, $period, 12),
             'insights' => $analytics->insights($user),
+            'monthReport' => $analytics->monthReport($user),
+            'fixedVsVariable' => $analytics->fixedVsVariable($user, 12),
         ]);
     }
 

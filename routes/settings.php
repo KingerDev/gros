@@ -18,6 +18,7 @@ Route::middleware('auth')->group(function () {
 
     Route::get('settings/preferences', [PreferenceController::class, 'edit'])->name('preferences.edit');
     Route::put('settings/preferences', [PreferenceController::class, 'update'])->name('preferences.update');
+    Route::put('settings/plan', [PreferenceController::class, 'updatePlan'])->name('preferences.plan');
 
     Route::get('settings/appearance', function () {
         return Inertia::render('settings/Appearance');
