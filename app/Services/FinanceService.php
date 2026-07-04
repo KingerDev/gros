@@ -119,16 +119,25 @@ class FinanceService
     {
         $today = CarbonImmutable::today();
 
-        return $user->budgets()->get()->map(function ($b) use ($user, $today) {
+        // Rozpočet na skupinu (nadradenú kategóriu) zahŕňa aj všetky jej podkategórie
+        $childrenByParent = $user->categories()
+            ->whereNotNull('parent_id')
+            ->get(['id', 'parent_id'])
+            ->groupBy('parent_id');
+
+        return $user->budgets()->get()->map(function ($b) use ($user, $today, $childrenByParent) {
             [$from, $total] = match ($b->period) {
                 'week' => [$today->startOfWeek(), 7],
                 'year' => [$today->startOfYear(), (int) $today->daysInYear],
                 default => [$today->startOfMonth(), (int) $today->daysInMonth],
             };
 
+            $children = $childrenByParent->get($b->category_id);
+            $catIds = collect([$b->category_id])->merge($children?->pluck('id') ?? [])->all();
+
             $spent = (float) $user->transactions()
                 ->where('type', 'expense')
-                ->where('category_id', $b->category_id)
+                ->whereIn('category_id', $catIds)
                 ->where('date', '>=', $from->toDateString())
                 ->sum('amount');
 
@@ -145,6 +154,7 @@ class FinanceService
                 'projected' => round($projected, 2),
                 'elapsed' => $elapsed,
                 'total' => $total,
+                'is_group' => count($catIds) > 1,
             ];
         })->values();
     }

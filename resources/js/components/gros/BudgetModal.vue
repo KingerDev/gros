@@ -35,16 +35,27 @@ const form = useForm<{ category_id: number | null; limit_amount: string; period:
 
 function segStyle(v: string) {
     const active = form.period === v;
-    return { flex: '1', padding: '11px', borderRadius: '10px', fontSize: '14px', fontWeight: 700, color: active ? '#20212e' : '#8a8c9a', background: active ? '#fff' : 'transparent', boxShadow: active ? '0 2px 8px rgba(60,55,40,.08)' : 'none' };
+    return {
+        flex: '1',
+        padding: '11px',
+        borderRadius: '10px',
+        fontSize: '14px',
+        fontWeight: 700,
+        color: active ? '#20212e' : '#8a8c9a',
+        background: active ? '#fff' : 'transparent',
+        boxShadow: active ? '0 2px 8px rgba(60,55,40,.08)' : 'none',
+    };
 }
 
 function submit() {
-    form
-        .transform((d) => ({ ...d, limit_amount: parseFloat(String(d.limit_amount).replace(/\s/g, '').replace(',', '.')) || 0 }))
-        .submit(editing.value ? 'put' : 'post', editing.value ? `/budgets/${props.budget!.id}` : '/budgets', {
+    form.transform((d) => ({ ...d, limit_amount: parseFloat(String(d.limit_amount).replace(/\s/g, '').replace(',', '.')) || 0 })).submit(
+        editing.value ? 'put' : 'post',
+        editing.value ? `/budgets/${props.budget!.id}` : '/budgets',
+        {
             preserveScroll: true,
             onSuccess: () => emit('close'),
-        });
+        },
+    );
 }
 
 function destroy() {
@@ -59,11 +70,15 @@ function destroy() {
             <select v-model="form.category_id" class="gros-select">
                 <template v-for="g in expenseGroups" :key="g.id">
                     <optgroup v-if="g.children.length" :label="(g.icon ? g.icon + ' ' : '') + g.name">
+                        <option :value="g.id">{{ (g.icon ? g.icon + ' ' : '') + g.name }} — celá skupina</option>
                         <option v-for="c in g.children" :key="c.id" :value="c.id">{{ (c.icon ? c.icon + ' ' : '') + c.name }}</option>
                     </optgroup>
                     <option v-else :value="g.id">{{ (g.icon ? g.icon + ' ' : '') + g.name }}</option>
                 </template>
             </select>
+            <div style="font-size: 11.5px; color: #b0b2bd; font-weight: 600; margin-top: 6px">
+                Rozpočet na celú skupinu počíta výdavky zo všetkých jej podkategórií.
+            </div>
         </div>
         <label class="gros-label">Limit</label>
         <div class="gros-amount-wrap" style="margin-bottom: 16px">
@@ -80,10 +95,29 @@ function destroy() {
             <button
                 v-if="editing"
                 type="button"
-                style="flex-shrink: 0; background: #fdeaea; color: #e8544e; font-weight: 800; font-size: 15px; padding: 15px 18px; border-radius: 14px"
+                style="
+                    flex-shrink: 0;
+                    background: #fdeaea;
+                    color: #e8544e;
+                    font-weight: 800;
+                    font-size: 15px;
+                    padding: 15px 18px;
+                    border-radius: 14px;
+                "
                 @click="destroy"
             >
-                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14" /></svg>
+                <svg
+                    width="17"
+                    height="17"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2.2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                >
+                    <path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14" />
+                </svg>
             </button>
             <button
                 type="button"
