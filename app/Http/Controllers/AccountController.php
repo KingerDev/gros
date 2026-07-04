@@ -35,6 +35,9 @@ class AccountController extends Controller
         // Príjmy/výdavky účtu = len skutočné príjmy/výdavky (prevody sa nerátajú)
         $income = (float) $txns->where('type', 'income')->where('account_id', $account->id)->sum('amount');
         $expense = (float) $txns->where('type', 'expense')->where('account_id', $account->id)->sum('amount');
+        // Prevody: dnu (na účet) a von (z účtu)
+        $transfersIn = (float) $txns->where('type', 'transfer')->where('to_account_id', $account->id)->sum('amount');
+        $transfersOut = (float) $txns->where('type', 'transfer')->where('account_id', $account->id)->sum('amount');
 
         return Inertia::render('gros/AccountDetail', [
             'account' => $account,
@@ -43,6 +46,8 @@ class AccountController extends Controller
             'income' => $income,
             'expense' => $expense,
             'net' => $income - $expense,
+            'transfersIn' => $transfersIn,
+            'transfersOut' => $transfersOut,
         ]);
     }
 

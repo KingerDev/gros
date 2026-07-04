@@ -3,7 +3,7 @@ import TransactionModal from '@/components/gros/TransactionModal.vue';
 import GrosLayout from '@/layouts/GrosLayout.vue';
 import { useGros } from '@/composables/useGros';
 import { Head, Link } from '@inertiajs/vue3';
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 
 interface AccountRef {
     id: number;
@@ -37,7 +37,12 @@ const props = defineProps<{
     income: number;
     expense: number;
     net: number;
+    transfersIn: number;
+    transfersOut: number;
 }>();
+
+const transfersNet = computed(() => props.transfersIn - props.transfersOut);
+const hasTransfers = computed(() => props.transfersIn > 0 || props.transfersOut > 0);
 
 const { eur, eurS, gradient, soft, catName, catColor, catGlyph, hexToRgba, formatDate } = useGros();
 
@@ -89,9 +94,15 @@ function editRow(t: Txn) {
                     <div style="font-size: 12.5px; font-weight: 600; color: #8a8c9a">Výdavky z účtu</div>
                     <div class="font-display" style="font-weight: 800; font-size: 21px; color: #e8544e; margin-top: 6px">{{ eur(expense) }}</div>
                 </div>
+                <div v-if="hasTransfers" style="background: #fff; border-radius: 18px; padding: 18px; box-shadow: 0 4px 18px rgba(60, 55, 40, 0.05)">
+                    <div style="font-size: 12.5px; font-weight: 600; color: #8a8c9a">Prevody (netto)</div>
+                    <div class="font-display" style="font-weight: 800; font-size: 21px; margin-top: 6px" :style="{ color: transfersNet >= 0 ? '#2ba35a' : '#e8544e' }">{{ eurS(transfersNet) }}</div>
+                    <div style="font-size: 11px; font-weight: 600; color: #9a9cab; margin-top: 4px">+{{ eur(transfersIn) }} · −{{ eur(transfersOut) }}</div>
+                </div>
                 <div style="background: #fff; border-radius: 18px; padding: 18px; box-shadow: 0 4px 18px rgba(60, 55, 40, 0.05)">
                     <div style="font-size: 12.5px; font-weight: 600; color: #8a8c9a">Zostatok toku</div>
                     <div class="font-display" style="font-weight: 800; font-size: 21px; margin-top: 6px" :style="{ color: net < 0 ? '#e8544e' : '#20212e' }">{{ eurS(net) }}</div>
+                    <div v-if="hasTransfers" style="font-size: 11px; font-weight: 600; color: #9a9cab; margin-top: 4px">len príjmy − výdavky</div>
                 </div>
                 <div style="background: #fff; border-radius: 18px; padding: 18px; box-shadow: 0 4px 18px rgba(60, 55, 40, 0.05)">
                     <div style="font-size: 12.5px; font-weight: 600; color: #8a8c9a">Transakcie</div>
