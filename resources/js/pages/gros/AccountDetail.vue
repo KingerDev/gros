@@ -77,7 +77,7 @@ function editRow(t: Txn) {
                     </div>
                 </div>
                 <div style="font-size: 13px; font-weight: 600; opacity: 0.9; margin-top: 18px">Aktuálny zostatok</div>
-                <div class="font-display" style="font-weight: 800; font-size: 34px; letter-spacing: -1.2px; margin-top: 4px">{{ eur(Number(account.balance)) }}</div>
+                <div class="font-display" style="font-weight: 800; font-size: 34px; letter-spacing: -1.2px; margin-top: 4px">{{ eurS(Number(account.balance)) }}</div>
             </div>
 
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(148px, 1fr)); gap: 14px; margin-top: 14px">

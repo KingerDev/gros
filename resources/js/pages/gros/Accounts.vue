@@ -16,7 +16,7 @@ interface Account {
 
 const props = defineProps<{ accounts: Account[]; total: number }>();
 
-const { eur, num, grad, primarySoft, hexToRgba } = useGros();
+const { eur, eurS, num, grad, primarySoft, hexToRgba } = useGros();
 
 const modalOpen = ref(false);
 const editAccount = ref<Account | null>(null);
@@ -46,7 +46,7 @@ function open(a: Account) {
             <div style="border-radius: 20px; padding: 24px 26px; color: #fff; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 14px" :style="{ background: grad, boxShadow: `0 16px 34px ${primarySoft}` }">
                 <div>
                     <div style="font-size: 13px; font-weight: 600; opacity: 0.9">Zostatok na účtoch spolu</div>
-                    <div class="font-display" style="font-weight: 800; font-size: 34px; letter-spacing: -1.2px; margin-top: 6px">{{ eur(total) }}</div>
+                    <div class="font-display" style="font-weight: 800; font-size: 34px; letter-spacing: -1.2px; margin-top: 6px">{{ eurS(total) }}</div>
                 </div>
                 <div style="font-size: 13px; font-weight: 600; opacity: 0.9">{{ accounts.length }} aktívne účty</div>
             </div>
@@ -74,9 +74,9 @@ function open(a: Account) {
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
                         </button>
                     </div>
-                    <div class="font-display" style="font-weight: 800; font-size: 26px; letter-spacing: -0.8px; margin-top: 16px">{{ eur(Number(a.balance)) }}</div>
+                    <div class="font-display" style="font-weight: 800; font-size: 26px; letter-spacing: -0.8px; margin-top: 16px" :style="{ color: Number(a.balance) < 0 ? '#e8544e' : '#20212e' }">{{ eurS(Number(a.balance)) }}</div>
                     <div style="height: 7px; background: #f1efe8; border-radius: 5px; overflow: hidden; margin-top: 12px">
-                        <div :style="{ height: '100%', width: (Number(a.balance) / totalOrOne) * 100 + '%', background: a.color, borderRadius: '5px' }"></div>
+                        <div :style="{ height: '100%', width: Math.max(0, Math.min(100, (Number(a.balance) / totalOrOne) * 100)) + '%', background: a.color, borderRadius: '5px' }"></div>
                     </div>
                     <div style="font-size: 11.5px; color: #9a9cab; font-weight: 600; margin-top: 7px">{{ num((Number(a.balance) / totalOrOne) * 100) }}% z celku</div>
                 </div>

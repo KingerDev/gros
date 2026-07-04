@@ -83,7 +83,7 @@ const cardShadow = '0 4px 18px rgba(60,55,40,.05)';
                 <div style="border-radius: 20px; padding: 20px; color: #fff" :style="{ background: grad, boxShadow: `0 16px 34px ${primarySoft}` }">
                     <div style="font-size: 12.5px; font-weight: 600; opacity: 0.9">Čisté imanie</div>
                     <div class="font-display" style="font-weight: 800; font-size: 30px; letter-spacing: -1px; margin-top: 8px">{{ eurS(stats.netWorth) }}</div>
-                    <div style="font-size: 12px; font-weight: 600; opacity: 0.88; margin-top: 8px">Hotovosť {{ eur(stats.cash) }} + investície {{ eur(portfolio.value) }}</div>
+                    <div style="font-size: 12px; font-weight: 600; opacity: 0.88; margin-top: 8px">Hotovosť {{ eurS(stats.cash) }} + investície {{ eur(portfolio.value) }}</div>
                 </div>
 
                 <div style="background: #fff; border-radius: 20px; padding: 20px" :style="{ boxShadow: cardShadow }">
