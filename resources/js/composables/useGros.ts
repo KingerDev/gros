@@ -53,15 +53,16 @@ export function useGros() {
     const grad = computed(() => gradient(primary.value));
     const primarySoft = computed(() => soft(primary.value));
 
+    //   = nezalomiteľná medzera, aby sa suma a € nerozdelili na dva riadky
     function eur(n: number): string {
-        if (settings.value.privacyMode) return '••••• €';
+        if (settings.value.privacyMode) return '••••• €';
         const dec = settings.value.showDecimals === false ? 0 : 2;
-        return new Intl.NumberFormat('sk-SK', { minimumFractionDigits: dec, maximumFractionDigits: dec }).format(Math.abs(n)) + ' €';
+        return new Intl.NumberFormat('sk-SK', { minimumFractionDigits: dec, maximumFractionDigits: dec }).format(Math.abs(n)) + ' €';
     }
 
     function eurS(n: number): string {
-        if (settings.value.privacyMode) return '••••• €';
-        return (n < 0 ? '− ' : '') + eur(n);
+        if (settings.value.privacyMode) return '••••• €';
+        return (n < 0 ? '− ' : '') + eur(n);
     }
 
     function num(n: number, d = 0): string {

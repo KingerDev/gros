@@ -278,7 +278,7 @@ const planColor = computed(() =>
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px">
                 <div style="border-radius: 20px; padding: 20px; color: #fff" :style="{ background: grad, boxShadow: `0 16px 34px ${primarySoft}` }">
                     <div style="font-size: 12.5px; font-weight: 600; opacity: 0.9">Čisté imanie</div>
-                    <div class="font-display" style="font-weight: 800; font-size: 30px; letter-spacing: -1px; margin-top: 8px">
+                    <div class="font-display" style="font-weight: 800; font-size: 26px; letter-spacing: -0.9px; margin-top: 8px; white-space: nowrap">
                         {{ eurS(stats.netWorth) }}
                     </div>
                     <div style="font-size: 12px; font-weight: 600; opacity: 0.88; margin-top: 8px">
