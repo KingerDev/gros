@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class Loan extends Model
 {
-    protected $fillable = ['user_id', 'kind', 'name', 'balance', 'principal', 'payment', 'rate', 'next_payment', 'color'];
+    protected $fillable = ['user_id', 'account_id', 'category_id', 'kind', 'name', 'balance', 'principal', 'payment', 'rate', 'next_payment', 'color'];
 
     protected $casts = [
         'balance' => 'decimal:2',
@@ -20,5 +20,15 @@ class Loan extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    public function account(): BelongsTo
+    {
+        return $this->belongsTo(Account::class);
+    }
+
+    public function category(): BelongsTo
+    {
+        return $this->belongsTo(Category::class);
     }
 }

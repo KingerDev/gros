@@ -16,10 +16,13 @@ interface Loan {
     rate: number | string;
     next_payment: string;
     color: string;
+    account_id: number | null;
+    category_id: number | null;
 }
 
 const props = defineProps<{
     loans: Loan[];
+    accounts: { id: number; name: string }[];
     totals: { owed: number; lent: number; monthlyPayment: number };
 }>();
 
@@ -138,6 +141,6 @@ function showProgress(l: Loan): boolean {
             </div>
         </div>
 
-        <LoanModal v-if="modalOpen" :loan="editLoan" @close="modalOpen = false" />
+        <LoanModal v-if="modalOpen" :loan="editLoan" :accounts="accounts" @close="modalOpen = false" />
     </GrosLayout>
 </template>

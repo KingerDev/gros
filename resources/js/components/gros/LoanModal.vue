@@ -1,8 +1,9 @@
 <script setup lang="ts">
+import CategorySelect from '@/components/gros/CategorySelect.vue';
 import Modal from '@/components/gros/Modal.vue';
 import { useGros } from '@/composables/useGros';
 import { useForm } from '@inertiajs/vue3';
-import { computed } from 'vue';
+import { computed, watch } from 'vue';
 
 interface LoanEdit {
     id: number;
@@ -13,16 +14,33 @@ interface LoanEdit {
     payment: number | string;
     rate: number | string;
     next_payment: string;
+    account_id: number | null;
+    category_id: number | null;
 }
 
-const props = defineProps<{ loan?: LoanEdit | null }>();
+interface AccountOption {
+    id: number;
+    name: string;
+}
+
+const props = defineProps<{ loan?: LoanEdit | null; accounts: AccountOption[] }>();
 const emit = defineEmits<{ close: [] }>();
 
-const { primary, primarySoft } = useGros();
+const { primary, primarySoft, categoryById } = useGros();
 const editing = computed(() => !!props.loan);
 const s = (v: number | string | undefined) => (v === 0 || v ? String(v).replace('.', ',') : '');
 
-const form = useForm({
+const form = useForm<{
+    kind: string;
+    name: string;
+    balance: string;
+    principal: string;
+    payment: string;
+    rate: string;
+    next_payment: string;
+    account_id: number | null;
+    category_id: number | null;
+}>({
     kind: props.loan?.kind ?? 'owe',
     name: props.loan?.name ?? '',
     balance: s(props.loan?.balance),
@@ -30,6 +48,15 @@ const form = useForm({
     payment: s(props.loan?.payment),
     rate: s(props.loan?.rate),
     next_payment: props.loan?.next_payment?.slice(0, 10) ?? new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),
+    account_id: props.loan?.account_id ?? props.accounts[0]?.id ?? null,
+    category_id: props.loan?.category_id ?? null,
+});
+
+// 'owe' = splácam (výdavok), 'lent' = vracajú mi (príjem) → kategória musí sedieť s typom
+const categoryType = computed<'income' | 'expense'>(() => (form.kind === 'lent' ? 'income' : 'expense'));
+watch(categoryType, (t) => {
+    const c = categoryById(form.category_id);
+    if (c && c.type !== t) form.category_id = null;
 });
 
 const balanceLabel = computed(() => (form.kind === 'owe' ? 'Zostáva splatiť' : 'Má mi vrátiť'));
@@ -92,10 +119,22 @@ function destroy() {
                 <input v-model="form.rate" type="text" inputmode="decimal" placeholder="0,0" class="gros-input" style="font-weight: 700" />
             </div>
         </div>
-        <div style="margin-bottom: 24px">
+        <div style="margin-bottom: 16px">
             <label class="gros-label">{{ dateLabel }}</label>
             <input v-model="form.next_payment" type="date" class="gros-input" />
         </div>
+        <div style="margin-bottom: 16px">
+            <label class="gros-label">Účet (automatická splátka)</label>
+            <select v-model="form.account_id" class="gros-select">
+                <option :value="null">Bez automatickej splátky</option>
+                <option v-for="a in accounts" :key="a.id" :value="a.id">{{ a.name }}</option>
+            </select>
+        </div>
+        <div v-if="form.account_id" style="margin-bottom: 24px">
+            <label class="gros-label">Kategória (voliteľné)</label>
+            <CategorySelect v-model="form.category_id" :type="categoryType" />
+        </div>
+        <div v-else style="margin-bottom: 24px"></div>
         <div style="display: flex; gap: 10px">
             <button
                 v-if="editing"

@@ -24,6 +24,7 @@ class SubscriptionController extends Controller
 
         return Inertia::render('gros/Subscriptions', [
             'subscriptions' => $subs,
+            'accounts' => $request->user()->accounts()->orderBy('name')->get(['id', 'name']),
             'totals' => [
                 'monthly' => $monthly,
                 'yearly' => $yearly,
@@ -66,11 +67,15 @@ class SubscriptionController extends Controller
     /** @return array<string, mixed> */
     protected function validated(Request $request): array
     {
+        $userId = $request->user()->id;
+
         return $request->validate([
             'name' => ['required', 'string', 'max:120'],
             'amount' => ['required', 'numeric', 'min:0'],
             'cycle' => ['required', Rule::in(['monthly', 'yearly'])],
             'next_payment' => ['required', 'date'],
+            'account_id' => ['nullable', Rule::exists('accounts', 'id')->where('user_id', $userId)],
+            'category_id' => ['nullable', Rule::exists('categories', 'id')->where('user_id', $userId)],
         ]);
     }
 }

@@ -13,10 +13,13 @@ interface Subscription {
     cycle: string;
     next_payment: string;
     color: string;
+    account_id: number | null;
+    category_id: number | null;
 }
 
 defineProps<{
     subscriptions: Subscription[];
+    accounts: { id: number; name: string }[];
     totals: { monthly: number; yearly: number; count: number };
 }>();
 
@@ -101,6 +104,6 @@ function cancel(s: Subscription) {
             </div>
         </div>
 
-        <SubscriptionModal v-if="modalOpen" :subscription="editSub" @close="modalOpen = false" />
+        <SubscriptionModal v-if="modalOpen" :subscription="editSub" :accounts="accounts" @close="modalOpen = false" />
     </GrosLayout>
 </template>

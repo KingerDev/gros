@@ -17,6 +17,7 @@ class LoanController extends Controller
 
         return Inertia::render('gros/Loans', [
             'loans' => $loans,
+            'accounts' => $request->user()->accounts()->orderBy('name')->get(['id', 'name']),
             'totals' => [
                 'owed' => (float) $loans->where('kind', 'owe')->sum('balance'),
                 'lent' => (float) $loans->where('kind', 'lent')->sum('balance'),
@@ -59,6 +60,8 @@ class LoanController extends Controller
     /** @return array<string, mixed> */
     protected function validated(Request $request): array
     {
+        $userId = $request->user()->id;
+
         return $request->validate([
             'kind' => ['required', Rule::in(['owe', 'lent'])],
             'name' => ['required', 'string', 'max:120'],
@@ -67,6 +70,8 @@ class LoanController extends Controller
             'payment' => ['required', 'numeric', 'min:0'],
             'rate' => ['required', 'numeric', 'min:0'],
             'next_payment' => ['required', 'date'],
+            'account_id' => ['nullable', Rule::exists('accounts', 'id')->where('user_id', $userId)],
+            'category_id' => ['nullable', Rule::exists('categories', 'id')->where('user_id', $userId)],
         ]);
     }
 }
