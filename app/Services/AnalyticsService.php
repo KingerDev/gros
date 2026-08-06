@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\Category;
 use App\Models\User;
 use App\Support\Period;
 use Carbon\CarbonImmutable;
@@ -12,7 +13,7 @@ class AnalyticsService
     /** Základné súčty za obdobie (bez prevodov). */
     public function summary(User $user, Period $period): array
     {
-        $rows = $period->apply($user->transactions()->where('type', '!=', 'transfer'))->get(['type', 'amount']);
+        $rows = $period->apply($user->transactions()->analyzed()->where('type', '!=', 'transfer'))->get(['type', 'amount']);
         $income = (float) $rows->where('type', 'income')->sum('amount');
         $expense = (float) $rows->where('type', 'expense')->sum('amount');
 
@@ -28,7 +29,7 @@ class AnalyticsService
     /** Súčty podľa kategórie za obdobie a typ. */
     public function byCategory(User $user, Period $period, string $type): Collection
     {
-        return $period->apply($user->transactions()->where('type', $type)->whereNotNull('category_id'))
+        return $period->apply($user->transactions()->analyzed()->where('type', $type)->whereNotNull('category_id'))
             ->selectRaw('category_id, sum(amount) as amount, count(*) as cnt')
             ->groupBy('category_id')
             ->orderByDesc('amount')
@@ -42,7 +43,7 @@ class AnalyticsService
         $today = CarbonImmutable::today();
         $start = $today->startOfMonth()->subMonths($months - 1);
 
-        $rows = $user->transactions()
+        $rows = $user->transactions()->analyzed()
             ->where('type', '!=', 'transfer')
             ->where('date', '>=', $start->toDateString())
             ->selectRaw("DATE_FORMAT(date, '%Y-%m') as ym, type, sum(amount) as amount")
@@ -73,7 +74,7 @@ class AnalyticsService
         $today = CarbonImmutable::today();
         $start = $today->startOfMonth()->subMonths($months - 1);
 
-        $rows = $user->transactions()
+        $rows = $user->transactions()->analyzed()
             ->where('category_id', $categoryId)
             ->where('date', '>=', $start->toDateString())
             ->selectRaw("DATE_FORMAT(date, '%Y-%m') as ym, sum(amount) as amount, count(*) as cnt")
@@ -87,7 +88,7 @@ class AnalyticsService
             $monthly->push(['label' => $this->shortMonth($m), 'amount' => (float) ($rows->firstWhere('ym', $ym)->amount ?? 0)]);
         }
 
-        $all = $user->transactions()->where('category_id', $categoryId)->get(['amount', 'note', 'date', 'type']);
+        $all = $user->transactions()->analyzed()->where('category_id', $categoryId)->get(['amount', 'note', 'date', 'type']);
         $top = $all->sortByDesc('amount')->take(6)->map(fn ($t) => [
             'amount' => (float) $t->amount,
             'note' => $t->note,
@@ -106,7 +107,7 @@ class AnalyticsService
     /** Top obchodníci/miesta z poznámok (výdavky) za obdobie. */
     public function topMerchants(User $user, Period $period, int $limit = 12): Collection
     {
-        return $period->apply($user->transactions()->where('type', 'expense')->whereNotNull('note')->where('note', '!=', ''))
+        return $period->apply($user->transactions()->analyzed()->where('type', 'expense')->whereNotNull('note')->where('note', '!=', ''))
             ->selectRaw('TRIM(note) as merchant, sum(amount) as amount, count(*) as cnt')
             ->groupBy('merchant')
             ->orderByDesc('amount')
@@ -129,12 +130,12 @@ class AnalyticsService
 
         $range = [$month->toDateString(), $month->endOfMonth()->toDateString()];
 
-        $top = $user->transactions()->where('type', 'expense')->whereNotNull('category_id')
+        $top = $user->transactions()->analyzed()->where('type', 'expense')->whereNotNull('category_id')
             ->whereBetween('date', $range)
             ->selectRaw('category_id, SUM(amount) as amount')
             ->groupBy('category_id')->orderByDesc('amount')->first();
 
-        $big = $user->transactions()->where('type', 'expense')
+        $big = $user->transactions()->analyzed()->where('type', 'expense')
             ->whereBetween('date', $range)
             ->orderByDesc('amount')->first();
 
@@ -163,7 +164,7 @@ class AnalyticsService
     /** @return array{income: float, expense: float, net: float, rate: int, count: int} */
     protected function monthTotals(User $user, CarbonImmutable $month): array
     {
-        $rows = $user->transactions()->where('type', '!=', 'transfer')
+        $rows = $user->transactions()->analyzed()->where('type', '!=', 'transfer')
             ->whereBetween('date', [$month->startOfMonth()->toDateString(), $month->endOfMonth()->toDateString()])
             ->get(['type', 'amount']);
 
@@ -189,7 +190,7 @@ class AnalyticsService
         $today = CarbonImmutable::today();
         $start = $today->startOfMonth()->subMonths($months - 1);
 
-        $rows = $user->transactions()
+        $rows = $user->transactions()->analyzed()
             ->where('type', 'expense')
             ->where('date', '>=', $start->toDateString())
             ->get(['amount', 'note', 'date'])
@@ -229,7 +230,7 @@ class AnalyticsService
     public function insights(User $user): array
     {
         $out = [];
-        $lastDate = $user->transactions()->where('type', '!=', 'transfer')->max('date');
+        $lastDate = $user->transactions()->analyzed()->where('type', '!=', 'transfer')->max('date');
         if (! $lastDate) {
             return $out;
         }
@@ -239,7 +240,7 @@ class AnalyticsService
         $exp = [];
         for ($i = 0; $i < 4; $i++) {
             $m = $last->subMonths($i);
-            $exp[$m->format('Y-m')] = (float) $user->transactions()->where('type', 'expense')
+            $exp[$m->format('Y-m')] = (float) $user->transactions()->analyzed()->where('type', 'expense')
                 ->whereBetween('date', [$m->startOfMonth()->toDateString(), $m->endOfMonth()->toDateString()])->sum('amount');
         }
         $curKey = $last->format('Y-m');
@@ -254,25 +255,25 @@ class AnalyticsService
                 $out[] = [
                     'tone' => $diff > 0 ? 'warn' : 'good',
                     'text' => $diff > 0
-                        ? "V {$monthName} si minul o ".round($diff)." % viac než býva priemer."
+                        ? "V {$monthName} si minul o ".round($diff).' % viac než býva priemer.'
                         : "V {$monthName} si minul o ".round(abs($diff)).' % menej než býva priemer. 👏',
                 ];
             }
         }
 
         // najväčšia kategória posledného mesiaca + trend
-        $catRow = $user->transactions()->where('type', 'expense')->whereNotNull('category_id')
+        $catRow = $user->transactions()->analyzed()->where('type', 'expense')->whereNotNull('category_id')
             ->whereBetween('date', [$last->startOfMonth()->toDateString(), $last->endOfMonth()->toDateString()])
             ->selectRaw('category_id, sum(amount) as a')->groupBy('category_id')->orderByDesc('a')->first();
         if ($catRow) {
-            $cat = \App\Models\Category::find($catRow->category_id);
+            $cat = Category::find($catRow->category_id);
             if ($cat) {
                 $out[] = ['tone' => 'info', 'text' => "Najviac v {$monthName} išlo na „{$cat->name}\" — ".$this->eur($catRow->a).'.'];
             }
         }
 
         // najväčší jednotlivý výdavok posledného mesiaca
-        $big = $user->transactions()->where('type', 'expense')
+        $big = $user->transactions()->analyzed()->where('type', 'expense')
             ->whereBetween('date', [$last->startOfMonth()->toDateString(), $last->endOfMonth()->toDateString()])
             ->orderByDesc('amount')->first();
         if ($big) {
@@ -281,7 +282,7 @@ class AnalyticsService
         }
 
         // miera úspor za posledný mesiac
-        $inc = (float) $user->transactions()->where('type', 'income')
+        $inc = (float) $user->transactions()->analyzed()->where('type', 'income')
             ->whereBetween('date', [$last->startOfMonth()->toDateString(), $last->endOfMonth()->toDateString()])->sum('amount');
         if ($inc > 0) {
             $rate = round(($inc - $cur) / $inc * 100);

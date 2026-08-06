@@ -57,6 +57,26 @@ class TransactionController extends Controller
         return back()->with('success', 'Transakcia upravená.');
     }
 
+    /** Zapne/vypne vylúčenie z analýzy (rýchla akcia zo zoznamu). Zostatky účtov ostávajú nedotknuté. */
+    public function exclusion(Request $request, Transaction $transaction): RedirectResponse
+    {
+        abort_unless($transaction->user_id === $request->user()->id, 403);
+
+        $data = $request->validate([
+            'excluded_from_analytics' => ['required', 'boolean'],
+            'exclusion_reason' => ['required_if:excluded_from_analytics,true,1', 'nullable', 'string', 'max:191'],
+        ]);
+
+        $excluded = (bool) $data['excluded_from_analytics'];
+
+        $transaction->update([
+            'excluded_from_analytics' => $excluded,
+            'exclusion_reason' => $excluded ? $data['exclusion_reason'] : null,
+        ]);
+
+        return back()->with('success', $excluded ? 'Transakcia vylúčená z analýzy.' : 'Transakcia vrátená do analýzy.');
+    }
+
     public function destroy(Request $request, Transaction $transaction): RedirectResponse
     {
         abort_unless($transaction->user_id === $request->user()->id, 403);
@@ -114,6 +134,8 @@ class TransactionController extends Controller
             'account_id' => ['required', Rule::exists('accounts', 'id')->where('user_id', $userId)],
             'date' => ['required', 'date'],
             'note' => ['nullable', 'string', 'max:191'],
+            'excluded_from_analytics' => ['boolean'],
+            'exclusion_reason' => ['required_if:excluded_from_analytics,true,1', 'nullable', 'string', 'max:191'],
         ];
 
         if ($type === 'transfer') {
@@ -123,6 +145,10 @@ class TransactionController extends Controller
         }
 
         $data = $request->validate($rules);
+
+        // Vylúčenie z analýzy: bez zaškrtnutia sa dôvod nedrží
+        $data['excluded_from_analytics'] = (bool) ($data['excluded_from_analytics'] ?? false);
+        $data['exclusion_reason'] = $data['excluded_from_analytics'] ? ($data['exclusion_reason'] ?? null) : null;
 
         if ($type === 'transfer') {
             $data['category_id'] = null;

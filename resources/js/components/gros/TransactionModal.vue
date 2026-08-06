@@ -3,7 +3,7 @@ import CategorySelect from '@/components/gros/CategorySelect.vue';
 import Modal from '@/components/gros/Modal.vue';
 import { useGros } from '@/composables/useGros';
 import { useForm } from '@inertiajs/vue3';
-import { computed, watch } from 'vue';
+import { computed, nextTick, ref, watch } from 'vue';
 
 interface AccountOption {
     id: number;
@@ -18,6 +18,8 @@ interface TxnEdit {
     amount: number | string;
     date: string;
     note: string | null;
+    excluded_from_analytics?: boolean;
+    exclusion_reason?: string | null;
 }
 
 const props = defineProps<{
@@ -42,6 +44,8 @@ const form = useForm<{
     amount: string;
     date: string;
     note: string;
+    excluded_from_analytics: boolean;
+    exclusion_reason: string;
 }>({
     type: (props.transaction?.type as 'income' | 'expense' | 'transfer') ?? 'expense',
     category_id: props.transaction?.category_id ?? null,
@@ -50,7 +54,21 @@ const form = useForm<{
     amount: props.transaction ? String(props.transaction.amount).replace('.', ',') : '',
     date: props.transaction?.date?.slice(0, 10) ?? new Date().toISOString().slice(0, 10),
     note: props.transaction?.note ?? '',
+    excluded_from_analytics: props.transaction?.excluded_from_analytics ?? false,
+    exclusion_reason: props.transaction?.exclusion_reason ?? '',
 });
+
+const reasonInput = ref<HTMLInputElement | null>(null);
+
+// Zaškrtnutie hneď pýta dôvod — bez neho sa transakcia vylúčiť nedá
+function toggleExcluded() {
+    form.excluded_from_analytics = !form.excluded_from_analytics;
+    if (form.excluded_from_analytics) {
+        nextTick(() => reasonInput.value?.focus());
+    } else {
+        form.exclusion_reason = '';
+    }
+}
 
 const isTransfer = computed(() => form.type === 'transfer');
 
@@ -61,6 +79,9 @@ watch(
             if (!form.to_account_id || form.to_account_id === form.account_id) {
                 form.to_account_id = props.accounts.find((a) => a.id !== form.account_id)?.id ?? null;
             }
+            // prevody do analýzy nevstupujú tak či tak
+            form.excluded_from_analytics = false;
+            form.exclusion_reason = '';
         } else {
             const c = categoryById(form.category_id);
             if (c && c.type !== t) form.category_id = null;
@@ -106,21 +127,25 @@ const title = computed(() => {
 const submitLabel = computed(() => (editing.value ? 'Uložiť zmeny' : isTransfer.value ? 'Pridať prevod' : 'Pridať transakciu'));
 
 function submit(andAnother = false) {
-    form
-        .transform((data) => ({ ...data, amount: parseFloat(String(data.amount).replace(/\s/g, '').replace(',', '.')) || 0 }))
-        .submit(editing.value ? 'put' : 'post', editing.value ? `/transactions/${props.transaction!.id}` : '/transactions', {
+    form.transform((data) => ({ ...data, amount: parseFloat(String(data.amount).replace(/\s/g, '').replace(',', '.')) || 0 })).submit(
+        editing.value ? 'put' : 'post',
+        editing.value ? `/transactions/${props.transaction!.id}` : '/transactions',
+        {
             preserveScroll: true,
             preserveState: andAnother ? true : undefined,
             onSuccess: () => {
                 if (andAnother && !editing.value) {
-                    // ponechá typ, kategóriu, účet aj dátum — vyčistí len sumu a poznámku
+                    // ponechá typ, kategóriu, účet aj dátum — vyčistí len sumu, poznámku a vylúčenie
                     form.amount = '';
                     form.note = '';
+                    form.excluded_from_analytics = false;
+                    form.exclusion_reason = '';
                 } else {
                     emit('close');
                 }
             },
-        });
+        },
+    );
 }
 
 function destroy() {
@@ -173,7 +198,18 @@ function destroy() {
                     </select>
                 </div>
                 <div style="flex-shrink: 0; padding-bottom: 12px; color: #9a9cab">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
+                    <svg
+                        width="20"
+                        height="20"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2.2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                    >
+                        <path d="M5 12h14M13 6l6 6-6 6" />
+                    </svg>
                 </div>
                 <div style="flex: 1; min-width: 130px">
                     <label class="gros-label">Na účet</label>
@@ -182,31 +218,120 @@ function destroy() {
                     </select>
                 </div>
             </div>
-            <div v-if="form.errors.to_account_id" style="color: #e8544e; font-size: 12px; font-weight: 600; margin-bottom: 12px; margin-top: -8px">Vyber cieľový účet (iný ako zdrojový).</div>
+            <div v-if="form.errors.to_account_id" style="color: #e8544e; font-size: 12px; font-weight: 600; margin-bottom: 12px; margin-top: -8px">
+                Vyber cieľový účet (iný ako zdrojový).
+            </div>
 
             <div style="margin-bottom: 18px">
                 <label class="gros-label">Dátum</label>
                 <input v-model="form.date" type="date" class="gros-input" />
             </div>
 
-            <div style="margin-bottom: 18px; padding: 12px 14px; background: #eef6ff; border-radius: 12px; font-size: 12.5px; font-weight: 600; color: #2a6ebd">
+            <div
+                style="
+                    margin-bottom: 18px;
+                    padding: 12px 14px;
+                    background: #eef6ff;
+                    border-radius: 12px;
+                    font-size: 12.5px;
+                    font-weight: 600;
+                    color: #2a6ebd;
+                "
+            >
                 Suma sa automaticky odpočíta zo zdrojového a pripočíta na cieľový účet.
             </div>
         </template>
 
-        <div style="margin-bottom: 24px">
+        <div style="margin-bottom: 18px">
             <label class="gros-label">Poznámka</label>
             <input v-model="form.note" type="text" :placeholder="isTransfer ? 'napr. Presun do sporenia' : 'napr. Kaufland'" class="gros-input" />
+        </div>
+
+        <!-- Vylúčenie z analýzy (len príjem/výdavok — prevody sa do analýz nerátajú) -->
+        <div v-if="!isTransfer" style="margin-bottom: 24px; padding: 14px; border-radius: 14px; background: #faf9f5; border: 1.5px solid #eceae2">
+            <button type="button" style="display: flex; align-items: flex-start; gap: 11px; width: 100%; text-align: left" @click="toggleExcluded">
+                <span
+                    style="
+                        width: 22px;
+                        height: 22px;
+                        border-radius: 7px;
+                        flex-shrink: 0;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        border: 1.5px solid #d7d4c8;
+                        margin-top: 1px;
+                    "
+                    :style="{
+                        background: form.excluded_from_analytics ? primary : '#fff',
+                        borderColor: form.excluded_from_analytics ? primary : '#d7d4c8',
+                    }"
+                >
+                    <svg
+                        v-if="form.excluded_from_analytics"
+                        width="13"
+                        height="13"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="#fff"
+                        stroke-width="3.2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                    >
+                        <path d="M4 12l5 5L20 6" />
+                    </svg>
+                </span>
+                <span style="flex: 1; min-width: 0">
+                    <span style="display: block; font-size: 14px; font-weight: 700; color: #20212e">Vylúčiť z analýzy</span>
+                    <span style="display: block; font-size: 12px; font-weight: 500; color: #9a9cab; margin-top: 2px; line-height: 1.45">
+                        Ostane v zozname aj v zostatku účtu, ale nebude v analýzach, prehľade ani v rozpočte kategórie.
+                    </span>
+                </span>
+            </button>
+
+            <div v-if="form.excluded_from_analytics" style="margin-top: 13px">
+                <label class="gros-label">Dôvod vylúčenia</label>
+                <input
+                    ref="reasonInput"
+                    v-model="form.exclusion_reason"
+                    type="text"
+                    maxlength="191"
+                    placeholder="napr. Preplatené firmou"
+                    class="gros-input"
+                />
+                <div v-if="form.errors.exclusion_reason" style="color: #e8544e; font-size: 12px; font-weight: 600; margin-top: 6px">
+                    Napíš dôvod vylúčenia.
+                </div>
+            </div>
         </div>
 
         <div style="display: flex; gap: 10px">
             <button
                 v-if="editing"
                 type="button"
-                style="flex-shrink: 0; background: #fdeaea; color: #e8544e; font-weight: 800; font-size: 15px; padding: 15px 18px; border-radius: 14px"
+                style="
+                    flex-shrink: 0;
+                    background: #fdeaea;
+                    color: #e8544e;
+                    font-weight: 800;
+                    font-size: 15px;
+                    padding: 15px 18px;
+                    border-radius: 14px;
+                "
                 @click="destroy"
             >
-                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14" /></svg>
+                <svg
+                    width="17"
+                    height="17"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2.2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                >
+                    <path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14" />
+                </svg>
             </button>
             <button
                 v-if="!editing"

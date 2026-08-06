@@ -6,6 +6,7 @@ use App\Models\Account;
 use App\Models\Loan;
 use App\Models\Subscription;
 use App\Models\Transaction;
+use App\Models\User;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 
@@ -17,19 +18,23 @@ use Illuminate\Support\Facades\DB;
  */
 class RecurringPaymentService
 {
-    /** Spracuje všetko splatné k danému dňu. Vracia počet vytvorených transakcií. */
-    public function process(?CarbonImmutable $today = null): int
+    /**
+     * Spracuje všetko splatné k danému dňu. Vracia počet vytvorených transakcií.
+     * S $user spracuje len jeho platby (lenivé spracovanie pri načítaní stránky).
+     */
+    public function process(?CarbonImmutable $today = null, ?User $user = null): int
     {
         $today = $today ?? CarbonImmutable::today();
 
-        return $this->processSubscriptions($today) + $this->processLoans($today);
+        return $this->processSubscriptions($today, $user) + $this->processLoans($today, $user);
     }
 
-    protected function processSubscriptions(CarbonImmutable $today): int
+    protected function processSubscriptions(CarbonImmutable $today, ?User $user = null): int
     {
         $created = 0;
 
         $subs = Subscription::query()
+            ->when($user, fn ($q) => $q->where('user_id', $user->id))
             ->whereNotNull('account_id')
             ->whereNotNull('next_payment')
             ->whereDate('next_payment', '<=', $today->toDateString())
@@ -40,7 +45,7 @@ class RecurringPaymentService
                 $due = CarbonImmutable::parse($sub->next_payment);
 
                 // Jedna platba za splatné obdobie — zameškané nedobiehame.
-                if ($this->post($sub->user_id, (int) $sub->account_id, $sub->category_id, 'expense', (float) $sub->amount, $due, $sub->name)) {
+                if ($this->post($sub->user_id, (int) $sub->account_id, $sub->category_id, 'expense', (float) $sub->amount, $due, $sub->name, 'subscription', (int) $sub->id)) {
                     $created++;
                 }
 
@@ -57,11 +62,12 @@ class RecurringPaymentService
         return $created;
     }
 
-    protected function processLoans(CarbonImmutable $today): int
+    protected function processLoans(CarbonImmutable $today, ?User $user = null): int
     {
         $created = 0;
 
         $loans = Loan::query()
+            ->when($user, fn ($q) => $q->where('user_id', $user->id))
             ->whereNotNull('account_id')
             ->whereNotNull('next_payment')
             ->where('payment', '>', 0)
@@ -83,7 +89,7 @@ class RecurringPaymentService
                 // Posledná splátka nemôže presiahnuť zostatok.
                 $amount = min((float) $loan->payment, $remaining);
 
-                if ($this->post($loan->user_id, (int) $loan->account_id, $loan->category_id, $type, $amount, $due, $loan->name)) {
+                if ($this->post($loan->user_id, (int) $loan->account_id, $loan->category_id, $type, $amount, $due, $loan->name, 'loan', (int) $loan->id)) {
                     $created++;
                 }
 
@@ -106,7 +112,7 @@ class RecurringPaymentService
      * Vytvorí transakciu a premietne ju do zostatku účtu (rovnaká logika ako
      * TransactionController::applyBalance). Vracia true, ak transakcia vznikla.
      */
-    protected function post(int $userId, int $accountId, ?int $categoryId, string $type, float $amount, CarbonImmutable $date, ?string $note): bool
+    protected function post(int $userId, int $accountId, ?int $categoryId, string $type, float $amount, CarbonImmutable $date, ?string $note, string $source, int $sourceId): bool
     {
         if ($amount <= 0) {
             return false;
@@ -120,6 +126,8 @@ class RecurringPaymentService
             'amount' => $amount,
             'date' => $date->toDateString(),
             'note' => $note,
+            'source' => $source,
+            'source_id' => $sourceId,
         ]);
 
         if ($type === 'income') {

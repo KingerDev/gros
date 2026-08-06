@@ -33,7 +33,7 @@ class DashboardController extends Controller
         $prevPeriod = $period->previous();
         $prevSum = $prevPeriod ? $analytics->summary($user, $prevPeriod) : null;
         $spendCats = $analytics->byCategory($user, $period, 'expense');
-        $topExpenses = $period->apply($user->transactions()->where('type', 'expense'))
+        $topExpenses = $period->apply($user->transactions()->analyzed()->where('type', 'expense'))
             ->orderByDesc('amount')
             ->limit(5)
             ->get(['category_id', 'amount', 'note'])

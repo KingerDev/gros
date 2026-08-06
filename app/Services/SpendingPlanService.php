@@ -36,7 +36,7 @@ class SpendingPlanService
         $disposable = $income - $fixed - $savings;
 
         // Už minuté tento mesiac (len výdavky, bez prevodov)
-        $spent = (float) $user->transactions()
+        $spent = (float) $user->transactions()->analyzed()
             ->where('type', 'expense')
             ->whereBetween('date', [$monthStart->toDateString(), $monthEnd->toDateString()])
             ->sum('amount');
@@ -64,7 +64,7 @@ class SpendingPlanService
             'daysInMonth' => $daysInMonth,
             'dayOfMonth' => $dayOfMonth,
             'daysLeft' => $daysLeft,
-            'monthLabel' => self::MONTHS_SK[(int) $today->month] . ' ' . $today->year,
+            'monthLabel' => self::MONTHS_SK[(int) $today->month].' '.$today->year,
             'estimateSuggestion' => round($this->estimatedMonthlyIncome($user), 2),
         ];
     }
@@ -89,7 +89,7 @@ class SpendingPlanService
 
         for ($i = 1; $i <= 3; $i++) {
             $m = $today->subMonthsNoOverflow($i);
-            $inc = (float) $user->transactions()
+            $inc = (float) $user->transactions()->analyzed()
                 ->where('type', 'income')
                 ->whereBetween('date', [$m->startOfMonth()->toDateString(), $m->endOfMonth()->toDateString()])
                 ->sum('amount');

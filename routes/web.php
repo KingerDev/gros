@@ -34,6 +34,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('transactions', [TransactionController::class, 'index'])->name('transactions.index');
     Route::post('transactions', [TransactionController::class, 'store'])->name('transactions.store');
     Route::put('transactions/{transaction}', [TransactionController::class, 'update'])->name('transactions.update');
+    Route::patch('transactions/{transaction}/exclusion', [TransactionController::class, 'exclusion'])->name('transactions.exclusion');
     Route::delete('transactions/{transaction}', [TransactionController::class, 'destroy'])->name('transactions.destroy');
 
     // Investície

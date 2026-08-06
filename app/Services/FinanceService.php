@@ -101,7 +101,7 @@ class FinanceService
 
         for ($i = 1; $i <= 6; $i++) {
             $m = $today->subMonthsNoOverflow($i);
-            $exp = (float) $user->transactions()
+            $exp = (float) $user->transactions()->analyzed()
                 ->where('type', 'expense')
                 ->whereBetween('date', [$m->startOfMonth()->toDateString(), $m->endOfMonth()->toDateString()])
                 ->sum('amount');
@@ -135,7 +135,7 @@ class FinanceService
             $children = $childrenByParent->get($b->category_id);
             $catIds = collect([$b->category_id])->merge($children?->pluck('id') ?? [])->all();
 
-            $spent = (float) $user->transactions()
+            $spent = (float) $user->transactions()->analyzed()
                 ->where('type', 'expense')
                 ->whereIn('category_id', $catIds)
                 ->where('date', '>=', $from->toDateString())
@@ -162,7 +162,7 @@ class FinanceService
     /** Príjmy/výdavky za posledných N dní (vrátane dneška). */
     public function flowSince(User $user, CarbonImmutable $from): array
     {
-        $rows = $user->transactions()
+        $rows = $user->transactions()->analyzed()
             ->where('date', '>=', $from->toDateString())
             ->get(['type', 'amount']);
 
@@ -179,7 +179,7 @@ class FinanceService
     /** Výdavky zoskupené podľa kategórie (category_id) od dátumu. */
     public function expensesByCategory(User $user, CarbonImmutable $from): Collection
     {
-        return $user->transactions()
+        return $user->transactions()->analyzed()
             ->where('type', 'expense')
             ->whereNotNull('category_id')
             ->where('date', '>=', $from->toDateString())
@@ -199,7 +199,7 @@ class FinanceService
         $today = CarbonImmutable::today();
         $start = $today->startOfMonth()->subMonths($months - 1);
 
-        $rows = $user->transactions()
+        $rows = $user->transactions()->analyzed()
             ->where('date', '>=', $start->toDateString())
             ->get(['type', 'amount', 'date']);
 
@@ -223,7 +223,7 @@ class FinanceService
     /** Príjmy/výdavky/čistý tok + investované (nákupy lots) po rokoch (medziročne). */
     public function yearlyHistory(User $user): Collection
     {
-        $rows = $user->transactions()->get(['type', 'amount', 'date']);
+        $rows = $user->transactions()->analyzed()->get(['type', 'amount', 'date']);
 
         $lots = InvestmentTransaction::query()
             ->whereIn('investment_id', $user->investments()->select('id'))
