@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Category;
+use App\Models\Transaction;
 use App\Models\User;
 use App\Support\Period;
 use Carbon\CarbonImmutable;
@@ -10,12 +11,12 @@ use Illuminate\Support\Collection;
 
 class AnalyticsService
 {
-    /** Základné súčty za obdobie (bez prevodov). */
+    /** Základné súčty za obdobie (bez prevodov). Výdavky sú čisté — po odrátaní vrátení. */
     public function summary(User $user, Period $period): array
     {
-        $rows = $period->apply($user->transactions()->analyzed()->where('type', '!=', 'transfer'))->get(['type', 'amount']);
+        $rows = $period->apply($user->transactions()->analyzed()->where('type', '!=', 'transfer'))->get(['type', 'amount', 'refunded_amount']);
         $income = (float) $rows->where('type', 'income')->sum('amount');
-        $expense = (float) $rows->where('type', 'expense')->sum('amount');
+        $expense = (float) $rows->where('type', 'expense')->sum('net_amount');
 
         return [
             'income' => $income,
@@ -30,7 +31,7 @@ class AnalyticsService
     public function byCategory(User $user, Period $period, string $type): Collection
     {
         return $period->apply($user->transactions()->analyzed()->where('type', $type)->whereNotNull('category_id'))
-            ->selectRaw('category_id, sum(amount) as amount, count(*) as cnt')
+            ->selectRaw('category_id, '.Transaction::netSum('amount').', count(*) as cnt')
             ->groupBy('category_id')
             ->orderByDesc('amount')
             ->get()
@@ -46,7 +47,7 @@ class AnalyticsService
         $rows = $user->transactions()->analyzed()
             ->where('type', '!=', 'transfer')
             ->where('date', '>=', $start->toDateString())
-            ->selectRaw("DATE_FORMAT(date, '%Y-%m') as ym, type, sum(amount) as amount")
+            ->selectRaw("DATE_FORMAT(date, '%Y-%m') as ym, type, ".Transaction::netSum('amount'))
             ->groupBy('ym', 'type')
             ->get();
 
@@ -77,7 +78,7 @@ class AnalyticsService
         $rows = $user->transactions()->analyzed()
             ->where('category_id', $categoryId)
             ->where('date', '>=', $start->toDateString())
-            ->selectRaw("DATE_FORMAT(date, '%Y-%m') as ym, sum(amount) as amount, count(*) as cnt")
+            ->selectRaw("DATE_FORMAT(date, '%Y-%m') as ym, ".Transaction::netSum('amount').', count(*) as cnt')
             ->groupBy('ym')
             ->get();
 
@@ -88,9 +89,9 @@ class AnalyticsService
             $monthly->push(['label' => $this->shortMonth($m), 'amount' => (float) ($rows->firstWhere('ym', $ym)->amount ?? 0)]);
         }
 
-        $all = $user->transactions()->analyzed()->where('category_id', $categoryId)->get(['amount', 'note', 'date', 'type']);
-        $top = $all->sortByDesc('amount')->take(6)->map(fn ($t) => [
-            'amount' => (float) $t->amount,
+        $all = $user->transactions()->analyzed()->where('category_id', $categoryId)->get(['amount', 'refunded_amount', 'note', 'date', 'type']);
+        $top = $all->sortByDesc('net_amount')->take(6)->map(fn ($t) => [
+            'amount' => $t->net_amount,
             'note' => $t->note,
             'date' => $t->date->toDateString(),
         ])->values();
@@ -98,9 +99,9 @@ class AnalyticsService
         return [
             'monthly' => $monthly,
             'top' => $top,
-            'total' => (float) $all->sum('amount'),
+            'total' => (float) $all->sum('net_amount'),
             'count' => $all->count(),
-            'avg' => $all->count() ? (float) $all->avg('amount') : 0,
+            'avg' => $all->count() ? (float) $all->avg('net_amount') : 0,
         ];
     }
 
@@ -108,7 +109,7 @@ class AnalyticsService
     public function topMerchants(User $user, Period $period, int $limit = 12): Collection
     {
         return $period->apply($user->transactions()->analyzed()->where('type', 'expense')->whereNotNull('note')->where('note', '!=', ''))
-            ->selectRaw('TRIM(note) as merchant, sum(amount) as amount, count(*) as cnt')
+            ->selectRaw('TRIM(note) as merchant, '.Transaction::netSum('amount').', count(*) as cnt')
             ->groupBy('merchant')
             ->orderByDesc('amount')
             ->limit($limit)
@@ -132,12 +133,12 @@ class AnalyticsService
 
         $top = $user->transactions()->analyzed()->where('type', 'expense')->whereNotNull('category_id')
             ->whereBetween('date', $range)
-            ->selectRaw('category_id, SUM(amount) as amount')
+            ->selectRaw('category_id, '.Transaction::netSum('amount'))
             ->groupBy('category_id')->orderByDesc('amount')->first();
 
         $big = $user->transactions()->analyzed()->where('type', 'expense')
             ->whereBetween('date', $range)
-            ->orderByDesc('amount')->first();
+            ->orderByDesc(Transaction::netExpression())->first();
 
         $pct = fn (float $now, float $base) => $base > 0 ? round(($now - $base) / $base * 100, 1) : null;
 
@@ -155,7 +156,7 @@ class AnalyticsService
             'biggestExpense' => $big ? [
                 'note' => $big->note,
                 'category_id' => $big->category_id,
-                'amount' => (float) $big->amount,
+                'amount' => $big->net_amount,
                 'date' => $big->date->toDateString(),
             ] : null,
         ];
@@ -166,10 +167,10 @@ class AnalyticsService
     {
         $rows = $user->transactions()->analyzed()->where('type', '!=', 'transfer')
             ->whereBetween('date', [$month->startOfMonth()->toDateString(), $month->endOfMonth()->toDateString()])
-            ->get(['type', 'amount']);
+            ->get(['type', 'amount', 'refunded_amount']);
 
         $income = (float) $rows->where('type', 'income')->sum('amount');
-        $expense = (float) $rows->where('type', 'expense')->sum('amount');
+        $expense = (float) $rows->where('type', 'expense')->sum('net_amount');
 
         return [
             'income' => $income,
@@ -193,11 +194,11 @@ class AnalyticsService
         $rows = $user->transactions()->analyzed()
             ->where('type', 'expense')
             ->where('date', '>=', $start->toDateString())
-            ->get(['amount', 'note', 'date'])
+            ->get(['amount', 'refunded_amount', 'note', 'date'])
             ->map(fn ($t) => [
                 'ym' => $t->date->format('Y-m'),
                 'key' => mb_strtolower(trim((string) $t->note)),
-                'amount' => (float) $t->amount,
+                'amount' => $t->net_amount,
             ]);
 
         $recurring = $rows->filter(fn ($r) => $r['key'] !== '')
@@ -241,7 +242,8 @@ class AnalyticsService
         for ($i = 0; $i < 4; $i++) {
             $m = $last->subMonths($i);
             $exp[$m->format('Y-m')] = (float) $user->transactions()->analyzed()->where('type', 'expense')
-                ->whereBetween('date', [$m->startOfMonth()->toDateString(), $m->endOfMonth()->toDateString()])->sum('amount');
+                ->whereBetween('date', [$m->startOfMonth()->toDateString(), $m->endOfMonth()->toDateString()])
+                ->sum(Transaction::netExpression());
         }
         $curKey = $last->format('Y-m');
         $cur = $exp[$curKey] ?? 0;
@@ -264,7 +266,7 @@ class AnalyticsService
         // najväčšia kategória posledného mesiaca + trend
         $catRow = $user->transactions()->analyzed()->where('type', 'expense')->whereNotNull('category_id')
             ->whereBetween('date', [$last->startOfMonth()->toDateString(), $last->endOfMonth()->toDateString()])
-            ->selectRaw('category_id, sum(amount) as a')->groupBy('category_id')->orderByDesc('a')->first();
+            ->selectRaw('category_id, '.Transaction::netSum('a'))->groupBy('category_id')->orderByDesc('a')->first();
         if ($catRow) {
             $cat = Category::find($catRow->category_id);
             if ($cat) {
@@ -275,10 +277,10 @@ class AnalyticsService
         // najväčší jednotlivý výdavok posledného mesiaca
         $big = $user->transactions()->analyzed()->where('type', 'expense')
             ->whereBetween('date', [$last->startOfMonth()->toDateString(), $last->endOfMonth()->toDateString()])
-            ->orderByDesc('amount')->first();
+            ->orderByDesc(Transaction::netExpression())->first();
         if ($big) {
             $title = $big->note ?: ($big->category?->name ?? 'výdavok');
-            $out[] = ['tone' => 'info', 'text' => "Najväčší výdavok v {$monthName}: „{$title}\" ".$this->eur($big->amount).'.'];
+            $out[] = ['tone' => 'info', 'text' => "Najväčší výdavok v {$monthName}: „{$title}\" ".$this->eur($big->net_amount).'.'];
         }
 
         // miera úspor za posledný mesiac

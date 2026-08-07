@@ -5,9 +5,19 @@ const props = defineProps<{
     source?: string | null;
     excluded?: boolean;
     reason?: string | null;
+    /** Táto transakcia je vrátenie peňazí spárované s nejakým nákupom. */
+    isRefund?: boolean;
+    /** Z tohto nákupu sa už niečo vrátilo. */
+    refundedAmount?: number;
+    /** Pôvodná suma nákupu — rozlíši úplné vrátenie od čiastočného. */
+    amount?: number;
 }>();
 
 const autoLabel = computed(() => (props.source === 'loan' ? 'Automatická splátka úveru' : 'Automatická platba predplatného'));
+
+const refundedLabel = computed(() =>
+    props.amount !== undefined && (props.refundedAmount ?? 0) >= props.amount - 0.001 ? 'VRÁTENÉ' : 'ČIASTOČNE VRÁTENÉ',
+);
 </script>
 
 <template>
@@ -41,6 +51,20 @@ const autoLabel = computed(() => (props.source === 'loan' ? 'Automatická splát
             <path d="M21 12a9 9 0 0 1-15 6.7L3 16M3 21v-5h5" />
         </svg>
         AUTO
+    </span>
+    <span
+        v-if="isRefund"
+        style="font-size: 10.5px; font-weight: 800; color: #2ba35a; background: #eefaf1; padding: 3px 7px; border-radius: 7px; white-space: nowrap"
+        title="Vrátenie peňazí — znižuje pôvodný nákup, do príjmov sa neráta"
+    >
+        VRÁTENIE
+    </span>
+    <span
+        v-else-if="refundedAmount"
+        style="font-size: 10.5px; font-weight: 800; color: #2ba35a; background: #eefaf1; padding: 3px 7px; border-radius: 7px; white-space: nowrap"
+        title="Časť tohto nákupu sa vrátila späť"
+    >
+        {{ refundedLabel }}
     </span>
     <span
         v-if="excluded"

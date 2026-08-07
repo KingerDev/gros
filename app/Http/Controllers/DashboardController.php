@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Transaction;
 use App\Services\AnalyticsService;
 use App\Services\FinanceService;
 use App\Services\NetWorthService;
@@ -34,13 +35,13 @@ class DashboardController extends Controller
         $prevSum = $prevPeriod ? $analytics->summary($user, $prevPeriod) : null;
         $spendCats = $analytics->byCategory($user, $period, 'expense');
         $topExpenses = $period->apply($user->transactions()->analyzed()->where('type', 'expense'))
-            ->orderByDesc('amount')
+            ->orderByDesc(Transaction::netExpression())
             ->limit(5)
-            ->get(['category_id', 'amount', 'note'])
+            ->get(['category_id', 'amount', 'refunded_amount', 'note'])
             ->map(fn ($t) => [
                 'category_id' => $t->category_id,
                 'note' => $t->note,
-                'amount' => (float) $t->amount,
+                'amount' => $t->net_amount,
             ]);
 
         // Investičné pozície

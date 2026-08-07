@@ -23,6 +23,8 @@ interface Txn {
     excluded_from_analytics: boolean;
     exclusion_reason: string | null;
     source: string | null;
+    refund_for_id: number | null;
+    refunded_amount: number | string;
     account: AccountRef | null;
     to_account: AccountRef | null;
 }
@@ -254,10 +256,17 @@ function editRow(t: Txn) {
                         <div style="flex: 1; min-width: 0">
                             <div style="display: flex; align-items: center; gap: 7px; flex-wrap: wrap">
                                 <span style="font-size: 14.5px; font-weight: 700">{{ t.note || catName(t.category_id) }}</span>
-                                <TxnTags :source="t.source" :excluded="t.excluded_from_analytics" :reason="t.exclusion_reason" />
+                                <TxnTags
+                                    :source="t.source"
+                                    :excluded="t.excluded_from_analytics"
+                                    :reason="t.exclusion_reason"
+                                    :is-refund="!!t.refund_for_id"
+                                    :refunded-amount="Number(t.refunded_amount ?? 0)"
+                                    :amount="Number(t.amount)"
+                                />
                             </div>
                             <div style="font-size: 12px; color: #9a9cab; font-weight: 500">
-                                {{ catName(t.category_id) }} · {{ formatDate(t.date) }}
+                                {{ t.refund_for_id ? 'Vrátenie peňazí' : catName(t.category_id) }} · {{ formatDate(t.date) }}
                             </div>
                         </div>
                         <div

@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\Transaction;
 use App\Models\User;
 use Carbon\CarbonImmutable;
 
@@ -35,11 +36,11 @@ class SpendingPlanService
         // Voľné na míňanie tento mesiac
         $disposable = $income - $fixed - $savings;
 
-        // Už minuté tento mesiac (len výdavky, bez prevodov)
+        // Už minuté tento mesiac (len výdavky, bez prevodov, po odrátaní vrátení)
         $spent = (float) $user->transactions()->analyzed()
             ->where('type', 'expense')
             ->whereBetween('date', [$monthStart->toDateString(), $monthEnd->toDateString()])
-            ->sum('amount');
+            ->sum(Transaction::netExpression());
 
         $safeToSpend = $disposable - $spent;
         $dailyLimit = max(0, $safeToSpend) / $daysLeft;

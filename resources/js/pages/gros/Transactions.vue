@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import AddButton from '@/components/gros/AddButton.vue';
 import ExclusionModal from '@/components/gros/ExclusionModal.vue';
+import RefundModal from '@/components/gros/RefundModal.vue';
 import TransactionModal from '@/components/gros/TransactionModal.vue';
 import TxnTags from '@/components/gros/TxnTags.vue';
 import { useGros } from '@/composables/useGros';
@@ -12,6 +13,13 @@ interface AccountRef {
     id: number;
     name: string;
     color: string;
+}
+interface RefundRow {
+    id: number;
+    amount: number | string;
+    date: string;
+    note: string | null;
+    account_id: number;
 }
 interface Txn {
     id: number;
@@ -25,6 +33,10 @@ interface Txn {
     excluded_from_analytics: boolean;
     exclusion_reason: string | null;
     source: string | null;
+    refund_for_id: number | null;
+    refunded_amount: number | string;
+    net_amount: number;
+    refunds?: RefundRow[];
     account: AccountRef | null;
     to_account: AccountRef | null;
 }
@@ -59,13 +71,23 @@ const filtered = computed(() => {
         .filter((t) => !cut || t.date.slice(0, 10) >= cut);
 });
 
-// Súčty ignorujú vylúčené transakcie — rovnako ako analýzy a rozpočty
-const counted = computed(() => filtered.value.filter((t) => !t.excluded_from_analytics));
+/** Suma po odrátaní vrátení — to, čo transakcia reálne stála. */
+function net(t: Txn): number {
+    return Number(t.net_amount ?? Number(t.amount) - Number(t.refunded_amount ?? 0));
+}
+
+// Súčty ignorujú vylúčené transakcie aj vrátenia — rovnako ako analýzy a rozpočty
+const counted = computed(() => filtered.value.filter((t) => !t.excluded_from_analytics && !t.refund_for_id));
 const inSum = computed(() => counted.value.filter((t) => t.type === 'income').reduce((s, t) => s + Number(t.amount), 0));
-const outSum = computed(() => counted.value.filter((t) => t.type === 'expense').reduce((s, t) => s + Number(t.amount), 0));
-const excludedCount = computed(() => filtered.value.length - counted.value.length);
+const outSum = computed(() => counted.value.filter((t) => t.type === 'expense').reduce((s, t) => s + net(t), 0));
+const excludedCount = computed(() => filtered.value.filter((t) => t.excluded_from_analytics).length);
+const refundedSum = computed(() => counted.value.reduce((s, t) => s + Number(t.refunded_amount ?? 0), 0));
 
 const excludeTxn = ref<Txn | null>(null);
+
+// Držíme id, nie objekt — po rozpárovaní vrátenia sa modal prekreslí z čerstvých props
+const refundTxnId = ref<number | null>(null);
+const refundTxn = computed(() => props.transactions.find((t) => t.id === refundTxnId.value) ?? null);
 
 /** Zaškrtnutie „vylúčiť" otvorí okienko s dôvodom; odškrtnutie vráti transakciu do analýzy hneď. */
 function toggleExclusion(t: Txn) {
@@ -120,17 +142,21 @@ function csvEsc(v: string): string {
     return /[",;\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
 }
 function exportCsv() {
-    const head = ['Dátum', 'Typ', 'Kategória', 'Poznámka', 'Účet', 'Suma (EUR)'];
+    const head = ['Dátum', 'Typ', 'Kategória', 'Poznámka', 'Účet', 'Suma (EUR)', 'Vrátené (EUR)', 'Čistá suma (EUR)'];
     const lines = [head.join(';')];
     filtered.value.forEach((t) => {
         lines.push(
             [
                 formatDate(t.date),
-                t.type === 'income' ? 'Príjem' : t.type === 'transfer' ? 'Prevod' : 'Výdavok',
+                t.refund_for_id ? 'Vrátenie' : t.type === 'income' ? 'Príjem' : t.type === 'transfer' ? 'Prevod' : 'Výdavok',
                 t.type === 'transfer' ? '' : catName(t.category_id),
                 t.note ?? '',
                 t.type === 'transfer' ? transferPath(t) : (t.account?.name ?? ''),
                 (t.type === 'expense' ? '-' : '') + Number(t.amount).toFixed(2).replace('.', ','),
+                Number(t.refunded_amount ?? 0)
+                    .toFixed(2)
+                    .replace('.', ','),
+                (t.type === 'expense' ? '-' : '') + net(t).toFixed(2).replace('.', ','),
             ]
                 .map(csvEsc)
                 .join(';'),
@@ -212,10 +238,13 @@ function exportCsv() {
                 <div style="font-size: 13px; font-weight: 600; color: #6a6c7a">
                     {{ filtered.length }} transakcií · {{ periodLabel }}
                     <span v-if="excludedCount" style="color: #a06a1e">· {{ excludedCount }} mimo analýzy</span>
+                    <span v-if="refundedSum" style="color: #2ba35a">· {{ eur(refundedSum) }} vrátené</span>
                 </div>
                 <div style="display: flex; align-items: center; gap: 16px">
                     <span style="font-size: 13px; font-weight: 700; color: #2ba35a">+ {{ eur(inSum) }}</span>
-                    <span style="font-size: 13px; font-weight: 700; color: #e8544e">− {{ eur(outSum) }}</span>
+                    <span style="font-size: 13px; font-weight: 700; color: #e8544e" :title="refundedSum ? 'Po odrátaní vrátení' : undefined"
+                        >− {{ eur(outSum) }}</span
+                    >
                 </div>
             </div>
 
@@ -281,10 +310,24 @@ function exportCsv() {
                         <div style="flex: 1; min-width: 0">
                             <div style="display: flex; align-items: center; gap: 7px; flex-wrap: wrap">
                                 <span style="font-size: 14.5px; font-weight: 700">{{ t.note || catName(t.category_id) }}</span>
-                                <TxnTags :source="t.source" :excluded="t.excluded_from_analytics" :reason="t.exclusion_reason" />
+                                <TxnTags
+                                    :source="t.source"
+                                    :excluded="t.excluded_from_analytics"
+                                    :reason="t.exclusion_reason"
+                                    :is-refund="!!t.refund_for_id"
+                                    :refunded-amount="Number(t.refunded_amount ?? 0)"
+                                    :amount="Number(t.amount)"
+                                />
                             </div>
                             <div style="font-size: 12px; color: #9a9cab; font-weight: 500">
-                                {{ catName(t.category_id) }} · {{ t.account?.name ?? '—' }} · {{ formatDate(t.date) }}
+                                {{ t.refund_for_id ? 'Vrátenie peňazí' : catName(t.category_id) }} · {{ t.account?.name ?? '—' }} ·
+                                {{ formatDate(t.date) }}
+                            </div>
+                            <div
+                                v-if="Number(t.refunded_amount ?? 0) > 0"
+                                style="font-size: 11.5px; color: #2ba35a; font-weight: 600; margin-top: 2px"
+                            >
+                                Vrátené {{ eur(Number(t.refunded_amount)) }} · reálne stálo {{ eur(net(t)) }}
                             </div>
                             <div
                                 v-if="t.excluded_from_analytics && t.exclusion_reason"
@@ -293,12 +336,48 @@ function exportCsv() {
                                 Dôvod: {{ t.exclusion_reason }}
                             </div>
                         </div>
-                        <div
-                            style="font-size: 15px; font-weight: 800; white-space: nowrap"
-                            :style="{ color: t.type === 'income' ? '#2ba35a' : '#e8544e' }"
-                        >
-                            {{ t.type === 'income' ? '+ ' : '− ' }}{{ eur(Number(t.amount)) }}
+                        <div style="white-space: nowrap; text-align: right">
+                            <div style="font-size: 15px; font-weight: 800" :style="{ color: t.type === 'income' ? '#2ba35a' : '#e8544e' }">
+                                {{ t.type === 'income' ? '+ ' : '− ' }}{{ eur(net(t)) }}
+                            </div>
+                            <div
+                                v-if="Number(t.refunded_amount ?? 0) > 0"
+                                style="font-size: 11.5px; font-weight: 600; color: #b0b2bd; text-decoration: line-through"
+                            >
+                                {{ eur(Number(t.amount)) }}
+                            </div>
                         </div>
+                        <button
+                            v-if="t.type === 'expense'"
+                            type="button"
+                            style="
+                                width: 32px;
+                                height: 32px;
+                                border-radius: 10px;
+                                background: transparent;
+                                display: flex;
+                                align-items: center;
+                                justify-content: center;
+                                flex-shrink: 0;
+                            "
+                            :style="{ color: Number(t.refunded_amount ?? 0) > 0 ? '#2ba35a' : '#c4c2ba' }"
+                            title="Vrátenie peňazí"
+                            @click.stop="refundTxnId = t.id"
+                        >
+                            <svg
+                                width="16"
+                                height="16"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="2.2"
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                            >
+                                <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
+                                <path d="M3 3v5h5" />
+                            </svg>
+                        </button>
                         <button
                             type="button"
                             style="
@@ -384,5 +463,6 @@ function exportCsv() {
 
         <TransactionModal v-if="showModal" :accounts="accounts" :transaction="editTxn" @close="showModal = false" />
         <ExclusionModal v-if="excludeTxn" :transaction-id="excludeTxn.id" :reason="excludeTxn.exclusion_reason" @close="excludeTxn = null" />
+        <RefundModal v-if="refundTxn" :transaction="refundTxn" :accounts="accounts" :candidates="transactions" @close="refundTxnId = null" />
     </GrosLayout>
 </template>

@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\InvestmentTransaction;
+use App\Models\Transaction;
 use App\Models\User;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
@@ -104,7 +105,7 @@ class FinanceService
             $exp = (float) $user->transactions()->analyzed()
                 ->where('type', 'expense')
                 ->whereBetween('date', [$m->startOfMonth()->toDateString(), $m->endOfMonth()->toDateString()])
-                ->sum('amount');
+                ->sum(Transaction::netExpression());
             if ($exp > 0) {
                 $sum += $exp;
                 $counted++;
@@ -139,7 +140,7 @@ class FinanceService
                 ->where('type', 'expense')
                 ->whereIn('category_id', $catIds)
                 ->where('date', '>=', $from->toDateString())
-                ->sum('amount');
+                ->sum(Transaction::netExpression());
 
             // Projekcia tempa: koľko sa minie do konca obdobia pri aktuálnom tempe
             $elapsed = max(1, $from->diffInDays($today) + 1);
@@ -164,10 +165,10 @@ class FinanceService
     {
         $rows = $user->transactions()->analyzed()
             ->where('date', '>=', $from->toDateString())
-            ->get(['type', 'amount']);
+            ->get(['type', 'amount', 'refunded_amount']);
 
         $income = (float) $rows->where('type', 'income')->sum('amount');
-        $expense = (float) $rows->where('type', 'expense')->sum('amount');
+        $expense = (float) $rows->where('type', 'expense')->sum('net_amount');
 
         return [
             'income' => $income,
@@ -183,11 +184,11 @@ class FinanceService
             ->where('type', 'expense')
             ->whereNotNull('category_id')
             ->where('date', '>=', $from->toDateString())
-            ->get(['category_id', 'amount'])
+            ->get(['category_id', 'amount', 'refunded_amount'])
             ->groupBy('category_id')
             ->map(fn ($rows, $catId) => [
                 'category_id' => (int) $catId,
-                'amount' => (float) $rows->sum('amount'),
+                'amount' => (float) $rows->sum('net_amount'),
             ])
             ->sortByDesc('amount')
             ->values();
@@ -201,14 +202,14 @@ class FinanceService
 
         $rows = $user->transactions()->analyzed()
             ->where('date', '>=', $start->toDateString())
-            ->get(['type', 'amount', 'date']);
+            ->get(['type', 'amount', 'refunded_amount', 'date']);
 
         $out = collect();
         for ($i = 0; $i < $months; $i++) {
             $m = $start->addMonths($i);
             $monthRows = $rows->filter(fn ($t) => $t->date->format('Y-m') === $m->format('Y-m'));
             $income = (float) $monthRows->where('type', 'income')->sum('amount');
-            $expense = (float) $monthRows->where('type', 'expense')->sum('amount');
+            $expense = (float) $monthRows->where('type', 'expense')->sum('net_amount');
             $out->push([
                 'label' => $this->monthLabel($m->month),
                 'income' => $income,
@@ -223,7 +224,7 @@ class FinanceService
     /** Príjmy/výdavky/čistý tok + investované (nákupy lots) po rokoch (medziročne). */
     public function yearlyHistory(User $user): Collection
     {
-        $rows = $user->transactions()->analyzed()->get(['type', 'amount', 'date']);
+        $rows = $user->transactions()->analyzed()->get(['type', 'amount', 'refunded_amount', 'date']);
 
         $lots = InvestmentTransaction::query()
             ->whereIn('investment_id', $user->investments()->select('id'))
@@ -240,7 +241,7 @@ class FinanceService
             ->map(function ($year) use ($txYears, $lotYears) {
                 $yearRows = $txYears->get($year, collect());
                 $income = (float) $yearRows->where('type', 'income')->sum('amount');
-                $expense = (float) $yearRows->where('type', 'expense')->sum('amount');
+                $expense = (float) $yearRows->where('type', 'expense')->sum('net_amount');
 
                 $yearLots = $lotYears->get($year, collect());
                 $lotValue = fn ($l) => (float) $l->units * (float) $l->price;

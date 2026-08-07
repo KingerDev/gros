@@ -20,6 +20,7 @@ interface TxnEdit {
     note: string | null;
     excluded_from_analytics?: boolean;
     exclusion_reason?: string | null;
+    refund_for_id?: number | null;
 }
 
 const props = defineProps<{
@@ -32,6 +33,8 @@ const emit = defineEmits<{ close: [] }>();
 const { primary, primarySoft, categoryById } = useGros();
 
 const editing = computed(() => !!props.transaction);
+// Spárované vrátenie: typ ani kategória sa meniť nedajú — patrí k svojmu nákupu
+const isRefund = computed(() => !!props.transaction?.refund_for_id);
 
 const defaultAccount = props.transaction?.account_id ?? props.presetAccountId ?? props.accounts[0]?.id ?? null;
 const otherAccount = props.accounts.find((a) => a.id !== defaultAccount)?.id ?? null;
@@ -121,6 +124,7 @@ function segStyle(t: string) {
 }
 
 const title = computed(() => {
+    if (isRefund.value) return 'Upraviť vrátenie';
     const noun = isTransfer.value ? 'prevod' : 'transakciu';
     return editing.value ? `Upraviť ${noun}` : isTransfer.value ? 'Nový prevod' : 'Nová transakcia';
 });
@@ -156,8 +160,24 @@ function destroy() {
 
 <template>
     <Modal :title="title" @close="emit('close')">
-        <div style="display: flex; gap: 6px; background: #f1efe8; padding: 4px; border-radius: 13px; margin-bottom: 18px">
+        <div v-if="!isRefund" style="display: flex; gap: 6px; background: #f1efe8; padding: 4px; border-radius: 13px; margin-bottom: 18px">
             <button v-for="s in segs" :key="s.key" type="button" :style="segStyle(s.key)" @click="form.type = s.key">{{ s.label }}</button>
+        </div>
+
+        <div
+            v-else
+            style="
+                margin-bottom: 18px;
+                padding: 12px 14px;
+                background: #eefaf1;
+                border-radius: 12px;
+                font-size: 12.5px;
+                font-weight: 600;
+                color: #2ba35a;
+                line-height: 1.5;
+            "
+        >
+            Vrátenie peňazí spárované s nákupom. Znižuje ten nákup v analýzach — ako príjem sa neráta. Rozpárovať sa dá v okne vrátení pri nákupe.
         </div>
 
         <label class="gros-label">Suma</label>
@@ -165,9 +185,26 @@ function destroy() {
             <input v-model="form.amount" type="text" inputmode="decimal" placeholder="0,00" class="gros-amount" />
             <span class="font-display" style="font-weight: 800; font-size: 22px; color: #b8b6ac">€</span>
         </div>
+        <div v-if="form.errors.amount" style="color: #e8544e; font-size: 12px; font-weight: 600; margin: -12px 0 14px">{{ form.errors.amount }}</div>
+
+        <!-- Vrátenie: len účet a dátum, kategóriu preberá z nákupu -->
+        <template v-if="isRefund">
+            <div style="display: flex; gap: 12px; margin-bottom: 18px; flex-wrap: wrap">
+                <div style="flex: 1; min-width: 130px">
+                    <label class="gros-label">Na účet</label>
+                    <select v-model="form.account_id" class="gros-select">
+                        <option v-for="a in accounts" :key="a.id" :value="a.id">{{ a.name }}</option>
+                    </select>
+                </div>
+                <div style="flex: 1; min-width: 130px">
+                    <label class="gros-label">Dátum</label>
+                    <input v-model="form.date" type="date" class="gros-input" />
+                </div>
+            </div>
+        </template>
 
         <!-- Kategória (len príjem/výdavok) -->
-        <template v-if="!isTransfer">
+        <template v-else-if="!isTransfer">
             <label class="gros-label">Kategória</label>
             <div style="margin-bottom: 18px">
                 <CategorySelect v-model="form.category_id" :type="form.type as 'income' | 'expense'" />
@@ -247,8 +284,11 @@ function destroy() {
             <input v-model="form.note" type="text" :placeholder="isTransfer ? 'napr. Presun do sporenia' : 'napr. Kaufland'" class="gros-input" />
         </div>
 
-        <!-- Vylúčenie z analýzy (len príjem/výdavok — prevody sa do analýz nerátajú) -->
-        <div v-if="!isTransfer" style="margin-bottom: 24px; padding: 14px; border-radius: 14px; background: #faf9f5; border: 1.5px solid #eceae2">
+        <!-- Vylúčenie z analýzy (len príjem/výdavok — prevody a vrátenia sa do analýz nerátajú) -->
+        <div
+            v-if="!isTransfer && !isRefund"
+            style="margin-bottom: 24px; padding: 14px; border-radius: 14px; background: #faf9f5; border: 1.5px solid #eceae2"
+        >
             <button type="button" style="display: flex; align-items: flex-start; gap: 11px; width: 100%; text-align: left" @click="toggleExcluded">
                 <span
                     style="
