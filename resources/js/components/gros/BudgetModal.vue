@@ -2,20 +2,50 @@
 import Modal from '@/components/gros/Modal.vue';
 import { useGros } from '@/composables/useGros';
 import { useForm } from '@inertiajs/vue3';
-import { computed } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 
 interface BudgetEdit {
     id: number;
     category_id: number;
     limit_amount: number | string;
     period: string;
+    spent?: number;
+}
+
+interface BudgetTxn {
+    id: number;
+    category_id: number;
+    date: string;
+    note: string | null;
+    amount: number;
+    refunded: number;
 }
 
 const props = defineProps<{ budget?: BudgetEdit | null }>();
 const emit = defineEmits<{ close: [] }>();
 
-const { categoryTree, primary, primarySoft } = useGros();
+const { categoryTree, primary, primarySoft, eur, catColor, catName, catGlyph, hexToRgba, formatDate } = useGros();
 const editing = computed(() => !!props.budget);
+
+const txns = ref<BudgetTxn[]>([]);
+const txnsLoading = ref(false);
+const txnsTotal = computed(() => txns.value.reduce((s, t) => s + t.amount, 0));
+
+const periodLabels: Record<string, string> = { week: 'tento týždeň', month: 'tento mesiac', year: 'tento rok' };
+
+onMounted(async () => {
+    if (!props.budget) return;
+    txnsLoading.value = true;
+    try {
+        const r = await fetch(`/budgets/${props.budget.id}/transactions`, {
+            headers: { Accept: 'application/json' },
+            credentials: 'same-origin',
+        });
+        txns.value = (await r.json()).transactions ?? [];
+    } finally {
+        txnsLoading.value = false;
+    }
+});
 
 // Skupiny výdavkov s ich listami (na optgroupy)
 const expenseGroups = computed(() => categoryTree.value.filter((g) => g.type === 'expense'));
@@ -129,5 +159,50 @@ function destroy() {
                 {{ editing ? 'Uložiť zmeny' : 'Pridať rozpočet' }}
             </button>
         </div>
+
+        <!-- Transakcie, z ktorých sa skladá vyčerpaná suma -->
+        <template v-if="editing">
+            <div style="height: 1px; background: #f1efe8; margin: 22px 0 16px"></div>
+            <div style="display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 10px">
+                <div style="font-size: 13px; font-weight: 700; color: #6a6c7a">
+                    Vyčerpané — {{ periodLabels[budget!.period] }}
+                    <span v-if="txns.length" style="color: #b0b2bd; font-weight: 600">({{ txns.length }})</span>
+                </div>
+                <div class="font-display" style="font-weight: 800; font-size: 15px">{{ eur(txnsTotal) }}</div>
+            </div>
+
+            <div v-if="txnsLoading" style="padding: 18px; text-align: center; color: #b0b2bd; font-weight: 600; font-size: 13px">Načítavam…</div>
+            <div v-else-if="!txns.length" style="color: #b0b2bd; font-weight: 600; font-size: 13px; padding: 8px 0">
+                Za toto obdobie zatiaľ žiadne výdavky.
+            </div>
+            <div v-else style="display: flex; flex-direction: column; gap: 2px; max-height: 260px; overflow-y: auto">
+                <div v-for="t in txns" :key="t.id" style="display: flex; align-items: center; gap: 10px; padding: 8px 6px; border-radius: 11px">
+                    <span
+                        style="
+                            width: 30px;
+                            height: 30px;
+                            border-radius: 10px;
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                            font-size: 13px;
+                            flex-shrink: 0;
+                        "
+                        :style="{ background: hexToRgba(catColor(t.category_id), 0.14), color: catColor(t.category_id) }"
+                        >{{ catGlyph(t.category_id) }}</span
+                    >
+                    <div style="flex: 1; min-width: 0">
+                        <div style="font-size: 13.5px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">
+                            {{ t.note || catName(t.category_id) }}
+                        </div>
+                        <div style="font-size: 11.5px; color: #9a9cab; font-weight: 600">
+                            {{ formatDate(t.date) }}
+                            <span v-if="t.refunded > 0"> · vrátené {{ eur(t.refunded) }}</span>
+                        </div>
+                    </div>
+                    <div class="font-display" style="font-size: 13.5px; font-weight: 800; white-space: nowrap">{{ eur(t.amount) }}</div>
+                </div>
+            </div>
+        </template>
     </Modal>
 </template>

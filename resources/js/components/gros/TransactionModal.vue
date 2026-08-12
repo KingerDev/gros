@@ -30,7 +30,7 @@ const props = defineProps<{
 }>();
 const emit = defineEmits<{ close: [] }>();
 
-const { primary, primarySoft, categoryById } = useGros();
+const { primary, primarySoft, categoryById, catName, catColor, catGlyph, hexToRgba } = useGros();
 
 const editing = computed(() => !!props.transaction);
 // Spárované vrátenie: typ ani kategória sa meniť nedajú — patrí k svojmu nákupu
@@ -62,6 +62,49 @@ const form = useForm<{
 });
 
 const reasonInput = ref<HTMLInputElement | null>(null);
+
+/**
+ * Návrh kategórie podľa poznámky. Ozve sa len vtedy, keď kategória ešte nie je
+ * vybraná — do už zadanej voľby nikdy nesiahne.
+ */
+const suggestedCat = ref<number | null>(null);
+let suggestTimer: ReturnType<typeof setTimeout> | undefined;
+
+watch(
+    () => [form.note, form.type] as const,
+    ([note, type]) => {
+        clearTimeout(suggestTimer);
+        suggestedCat.value = null;
+        if (type === 'transfer' || isRefund.value || note.trim().length < 3) return;
+
+        suggestTimer = setTimeout(async () => {
+            const q = new URLSearchParams({ note: note.trim(), type });
+            try {
+                const r = await fetch(`/transactions/suggest-category?${q}`, {
+                    headers: { Accept: 'application/json' },
+                    credentials: 'same-origin',
+                });
+                const id = (await r.json()).category_id as number | null;
+                // Kým odpoveď letela, používateľ mohol písať ďalej alebo si kategóriu vybrať
+                if (id && note === form.note && !form.category_id) suggestedCat.value = id;
+            } catch {
+                suggestedCat.value = null;
+            }
+        }, 400);
+    },
+);
+
+watch(
+    () => form.category_id,
+    (id) => {
+        if (id) suggestedCat.value = null;
+    },
+);
+
+function applySuggestion() {
+    form.category_id = suggestedCat.value;
+    suggestedCat.value = null;
+}
 
 // Zaškrtnutie hneď pýta dôvod — bez neho sa transakcia vylúčiť nedá
 function toggleExcluded() {
@@ -282,6 +325,40 @@ function destroy() {
         <div style="margin-bottom: 18px">
             <label class="gros-label">Poznámka</label>
             <input v-model="form.note" type="text" :placeholder="isTransfer ? 'napr. Presun do sporenia' : 'napr. Kaufland'" class="gros-input" />
+            <!-- Návrh kategórie podľa toho, kam si rovnakú poznámku zaraďoval doteraz -->
+            <button
+                v-if="suggestedCat"
+                type="button"
+                style="
+                    display: flex;
+                    align-items: center;
+                    gap: 7px;
+                    margin-top: 8px;
+                    padding: 7px 11px;
+                    border-radius: 11px;
+                    font-size: 12.5px;
+                    font-weight: 700;
+                    background: #f5f4ef;
+                    color: #6a6c7a;
+                "
+                @click="applySuggestion"
+            >
+                <span
+                    style="
+                        width: 20px;
+                        height: 20px;
+                        border-radius: 7px;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        font-size: 11px;
+                        flex-shrink: 0;
+                    "
+                    :style="{ background: hexToRgba(catColor(suggestedCat), 0.18), color: catColor(suggestedCat) }"
+                    >{{ catGlyph(suggestedCat) }}</span
+                >
+                Zaradiť do „{{ catName(suggestedCat) }}"
+            </button>
         </div>
 
         <!-- Vylúčenie z analýzy (len príjem/výdavok — prevody a vrátenia sa do analýz nerátajú) -->

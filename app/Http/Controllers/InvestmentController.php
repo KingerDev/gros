@@ -6,6 +6,7 @@ use App\Models\Investment;
 use App\Models\InvestmentTransaction;
 use App\Services\PortfolioHistoryService;
 use App\Services\PriceService;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -193,7 +194,7 @@ class InvestmentController extends Controller
     }
 
     /** Vývoj hodnoty portfólia v čase (JSON, lazy načítanie na stránke). */
-    public function history(Request $request, PortfolioHistoryService $svc): \Illuminate\Http\JsonResponse
+    public function history(Request $request, PortfolioHistoryService $svc): JsonResponse
     {
         $user = $request->user();
         $data = $svc->monthlySeries($user);
@@ -215,7 +216,7 @@ class InvestmentController extends Controller
     }
 
     /** Historická cena za kus k dátumu (JSON pre formulár nákupu). */
-    public function historicalPrice(Request $request, Investment $investment, PriceService $prices): \Illuminate\Http\JsonResponse
+    public function historicalPrice(Request $request, Investment $investment, PriceService $prices): JsonResponse
     {
         abort_unless($investment->user_id === $request->user()->id, 403);
 

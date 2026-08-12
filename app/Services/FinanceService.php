@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\Budget;
 use App\Models\InvestmentTransaction;
 use App\Models\Transaction;
 use App\Models\User;
@@ -127,11 +128,7 @@ class FinanceService
             ->groupBy('parent_id');
 
         return $user->budgets()->get()->map(function ($b) use ($user, $today, $childrenByParent) {
-            [$from, $total] = match ($b->period) {
-                'week' => [$today->startOfWeek(), 7],
-                'year' => [$today->startOfYear(), (int) $today->daysInYear],
-                default => [$today->startOfMonth(), (int) $today->daysInMonth],
-            };
+            [$from, $total] = $this->budgetPeriod($b->period, $today);
 
             $children = $childrenByParent->get($b->category_id);
             $catIds = collect([$b->category_id])->merge($children?->pluck('id') ?? [])->all();
@@ -158,6 +155,52 @@ class FinanceService
                 'is_group' => count($catIds) > 1,
             ];
         })->values();
+    }
+
+    /**
+     * Začiatok obdobia rozpočtu a počet jeho dní.
+     *
+     * @return array{0: CarbonImmutable, 1: int}
+     */
+    public function budgetPeriod(string $period, ?CarbonImmutable $today = null): array
+    {
+        $today ??= CarbonImmutable::today();
+
+        return match ($period) {
+            'week' => [$today->startOfWeek(), 7],
+            'year' => [$today->startOfYear(), (int) $today->daysInYear],
+            default => [$today->startOfMonth(), (int) $today->daysInMonth],
+        };
+    }
+
+    /**
+     * Transakcie, z ktorých sa skladá vyčerpaná suma rozpočtu — od najnovšej.
+     * Pri rozpočte na skupinu zahŕňa aj podkategórie.
+     */
+    public function budgetTransactions(User $user, Budget $budget): Collection
+    {
+        [$from] = $this->budgetPeriod($budget->period);
+
+        $catIds = collect([$budget->category_id])
+            ->merge($user->categories()->where('parent_id', $budget->category_id)->pluck('id'))
+            ->all();
+
+        return $user->transactions()->analyzed()
+            ->where('type', 'expense')
+            ->whereIn('category_id', $catIds)
+            ->where('date', '>=', $from->toDateString())
+            ->orderByDesc('date')
+            ->orderByDesc('id')
+            ->get(['id', 'category_id', 'date', 'note', 'amount', 'refunded_amount'])
+            ->map(fn (Transaction $t) => [
+                'id' => $t->id,
+                'category_id' => $t->category_id,
+                'date' => $t->date->toDateString(),
+                'note' => $t->note,
+                'amount' => $t->net_amount,
+                'refunded' => (float) ($t->refunded_amount ?? 0),
+            ])
+            ->values();
     }
 
     /** Príjmy/výdavky za posledných N dní (vrátane dneška). */

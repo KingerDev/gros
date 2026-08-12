@@ -24,8 +24,8 @@ class AnalyticsController extends Controller
             'incomeByCategory' => $analytics->byCategory($user, $period, 'income'),
             'monthlySeries' => $analytics->monthlySeries($user, 24),
             'topMerchants' => $analytics->topMerchants($user, $period, 12),
-            'insights' => $analytics->insights($user),
-            'monthReport' => $analytics->monthReport($user),
+            'insights' => $analytics->insights($user, $period),
+            'periodReport' => $analytics->periodReport($user, $period),
             'fixedVsVariable' => $analytics->fixedVsVariable($user, 12),
         ]);
     }
@@ -37,6 +37,7 @@ class AnalyticsController extends Controller
         $cat = $request->user()->categories()->find($data['category_id']);
         abort_unless($cat, 404);
 
-        return response()->json($analytics->categoryDetail($request->user(), $cat->id, 12));
+        // Bez query parametrov sa obdobie vezme zo session — teda to isté, aké je zvolené v Analýzach
+        return response()->json($analytics->categoryDetail($request->user(), $cat->id, Period::fromRequest($request), 12));
     }
 }

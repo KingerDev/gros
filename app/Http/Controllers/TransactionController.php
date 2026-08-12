@@ -4,7 +4,11 @@ namespace App\Http\Controllers;
 
 use App\Models\Account;
 use App\Models\Transaction;
+use App\Services\AnalyticsService;
+use App\Services\CategorySuggester;
 use App\Services\RefundService;
+use App\Support\Period;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -15,20 +19,39 @@ use Inertia\Response;
 
 class TransactionController extends Controller
 {
-    public function index(Request $request): Response
+    public function index(Request $request, AnalyticsService $analytics): Response
     {
         $user = $request->user();
+        $period = Period::fromRequest($request);
 
-        // Filtrovanie (typ/obdobie) a CSV export rieši frontend nad celým zoznamom.
-        $transactions = $user->transactions()
-            ->with(['account:id,name,color', 'toAccount:id,name,color', 'refunds:id,refund_for_id,amount,date,note,account_id'])
+        // Obdobie riešime na serveri (je zdieľané s prehľadom aj analýzami),
+        // filter typu a CSV export si nad načítaným zoznamom robí frontend.
+        $transactions = $period->apply(
+            $user->transactions()
+                ->with(['account:id,name,color', 'toAccount:id,name,color', 'refunds:id,refund_for_id,amount,date,note,account_id'])
+        )
             ->orderByDesc('date')
             ->orderByDesc('id')
             ->get();
 
         return Inertia::render('gros/Transactions', [
+            'period' => $period->toArray(),
+            'dataRange' => $analytics->dataRange($user),
             'transactions' => $transactions,
             'accounts' => $user->accounts()->orderBy('name')->get(['id', 'name']),
+        ]);
+    }
+
+    /** Kategória, ktorú si na rovnakú poznámku používal doteraz (JSON pre formulár). */
+    public function suggestCategory(Request $request, CategorySuggester $suggester): JsonResponse
+    {
+        $data = $request->validate([
+            'note' => ['required', 'string', 'max:191'],
+            'type' => ['required', Rule::in(['income', 'expense'])],
+        ]);
+
+        return response()->json([
+            'category_id' => $suggester->suggest($request->user(), $data['note'], $data['type']),
         ]);
     }
 

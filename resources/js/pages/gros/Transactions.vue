@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import AddButton from '@/components/gros/AddButton.vue';
 import ExclusionModal from '@/components/gros/ExclusionModal.vue';
+import PeriodSelector from '@/components/gros/PeriodSelector.vue';
 import RefundModal from '@/components/gros/RefundModal.vue';
 import TransactionModal from '@/components/gros/TransactionModal.vue';
 import TxnTags from '@/components/gros/TxnTags.vue';
@@ -41,12 +42,16 @@ interface Txn {
     to_account: AccountRef | null;
 }
 
-const props = defineProps<{ transactions: Txn[]; accounts: { id: number; name: string }[] }>();
+const props = defineProps<{
+    transactions: Txn[];
+    accounts: { id: number; name: string }[];
+    period: { key: string; ref: string | null; from: string | null; to: string | null; label: string };
+    dataRange: { min: string | null; max: string | null };
+}>();
 
 const { eur, primary, catName, catColor, catGlyph, hexToRgba, formatDate } = useGros();
 
 const filter = ref<'all' | 'income' | 'expense' | 'transfer'>('all');
-const period = ref<'all' | '7' | '30' | 'year'>('all');
 
 function transferPath(t: Txn): string {
     return `${t.account?.name ?? '—'} → ${t.to_account?.name ?? '—'}`;
@@ -55,21 +60,8 @@ function transferPath(t: Txn): string {
 const showModal = ref(false);
 const editTxn = ref<Txn | null>(null);
 
-function cutoff(): string | null {
-    if (period.value === 'all') return null;
-    const today = new Date();
-    if (period.value === 'year') return `${today.getFullYear()}-01-01`;
-    const days = period.value === '7' ? 7 : 30;
-    const c = new Date(today.getTime() - days * 86400000);
-    return c.toISOString().slice(0, 10);
-}
-
-const filtered = computed(() => {
-    const cut = cutoff();
-    return props.transactions
-        .filter((t) => (filter.value === 'all' ? true : t.type === filter.value))
-        .filter((t) => !cut || t.date.slice(0, 10) >= cut);
-});
+// Obdobie orezáva už server, tu ostáva len filter typu
+const filtered = computed(() => props.transactions.filter((t) => (filter.value === 'all' ? true : t.type === filter.value)));
 
 /** Suma po odrátaní vrátení — to, čo transakcia reálne stála. */
 function net(t: Txn): number {
@@ -98,8 +90,6 @@ function toggleExclusion(t: Txn) {
     }
 }
 
-const periodLabel = computed(() => ({ all: 'celé obdobie', '7': 'posledných 7 dní', '30': 'posledných 30 dní', year: 'tento rok' })[period.value]);
-
 function filterStyle(v: string) {
     const active = filter.value === v;
     return {
@@ -112,19 +102,6 @@ function filterStyle(v: string) {
         boxShadow: active ? 'none' : '0 2px 8px rgba(60,55,40,.05)',
     };
 }
-function periodStyle(v: string) {
-    const active = period.value === v;
-    return {
-        padding: '7px 13px',
-        borderRadius: '10px',
-        fontSize: '12.5px',
-        fontWeight: 700,
-        color: active ? '#fff' : '#61637a',
-        background: active ? primary.value : '#fff',
-        boxShadow: active ? 'none' : '0 2px 8px rgba(60,55,40,.05)',
-    };
-}
-
 function openNew() {
     editTxn.value = null;
     showModal.value = true;
@@ -167,7 +144,8 @@ function exportCsv() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'gros-transakcie.csv';
+    // Export je za zvolené obdobie — nech je to vidieť aj na názve súboru
+    a.download = `gros-transakcie-${props.period.label.replace(/[^\p{L}\p{N}]+/gu, '-').toLowerCase()}.csv`;
     document.body.appendChild(a);
     a.click();
     setTimeout(() => {
@@ -226,17 +204,15 @@ function exportCsv() {
                 </button>
             </div>
 
-            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 16px; flex-wrap: wrap">
-                <span style="font-size: 12.5px; font-weight: 700; color: #9a9cab; margin-right: 2px">Obdobie</span>
-                <button type="button" :style="periodStyle('all')" @click="period = 'all'">Celé</button>
-                <button type="button" :style="periodStyle('7')" @click="period = '7'">7 dní</button>
-                <button type="button" :style="periodStyle('30')" @click="period = '30'">30 dní</button>
-                <button type="button" :style="periodStyle('year')" @click="period = 'year'">Tento rok</button>
+            <div
+                style="background: #fff; border-radius: 16px; padding: 12px 14px; box-shadow: 0 4px 18px rgba(60, 55, 40, 0.05); margin-bottom: 16px"
+            >
+                <PeriodSelector :period="period" :data-range="dataRange" path="/transactions" />
             </div>
 
             <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 4px 12px; flex-wrap: wrap">
                 <div style="font-size: 13px; font-weight: 600; color: #6a6c7a">
-                    {{ filtered.length }} transakcií · {{ periodLabel }}
+                    {{ filtered.length }} transakcií · {{ period.label }}
                     <span v-if="excludedCount" style="color: #a06a1e">· {{ excludedCount }} mimo analýzy</span>
                     <span v-if="refundedSum" style="color: #2ba35a">· {{ eur(refundedSum) }} vrátené</span>
                 </div>

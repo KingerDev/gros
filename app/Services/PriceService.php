@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Investment;
 use App\Models\User;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Http;
 
@@ -126,7 +127,7 @@ class PriceService
         }
 
         try {
-            $day = \Carbon\CarbonImmutable::parse($date);
+            $day = CarbonImmutable::parse($date);
             $res = Http::timeout(15)
                 ->withHeaders(['User-Agent' => 'Mozilla/5.0'])
                 ->get('https://query1.finance.yahoo.com/v8/finance/chart/'.urlencode($symbol), [
@@ -148,7 +149,7 @@ class PriceService
             foreach ($timestamps as $i => $ts) {
                 $c = $closes[$i] ?? null;
                 if ($c !== null) {
-                    $byDate[\Carbon\CarbonImmutable::createFromTimestamp($ts)->toDateString()] = (float) $c;
+                    $byDate[CarbonImmutable::createFromTimestamp($ts)->toDateString()] = (float) $c;
                 }
             }
             if (! $byDate) {

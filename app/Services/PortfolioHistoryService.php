@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Investment;
 use App\Models\User;
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 
@@ -31,7 +32,7 @@ class PortfolioHistoryService
         return Cache::remember("portfolio_history:{$user->id}:$sig", now()->addHours(6), fn () => $this->build($holdings));
     }
 
-    /** @param \Illuminate\Support\Collection<int, Investment> $holdings */
+    /** @param Collection<int, Investment> $holdings */
     protected function build($holdings): array
     {
         $start = CarbonImmutable::parse($holdings->pluck('lots')->flatten()->min('date'))->startOfMonth();

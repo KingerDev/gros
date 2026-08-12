@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Budget;
 use App\Services\FinanceService;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -23,6 +24,16 @@ class BudgetController extends Controller
                 'spent' => (float) $rows->sum('spent'),
                 'overCount' => $rows->filter(fn ($b) => $b['spent'] > $b['limit_amount'])->count(),
             ],
+        ]);
+    }
+
+    /** Transakcie, z ktorých sa skladá vyčerpaná suma rozpočtu. */
+    public function transactions(Request $request, Budget $budget, FinanceService $finance): JsonResponse
+    {
+        abort_unless($budget->user_id === $request->user()->id, 403);
+
+        return response()->json([
+            'transactions' => $finance->budgetTransactions($request->user(), $budget),
         ]);
     }
 

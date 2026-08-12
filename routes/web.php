@@ -33,6 +33,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     // Transakcie
     Route::get('transactions', [TransactionController::class, 'index'])->name('transactions.index');
     Route::post('transactions', [TransactionController::class, 'store'])->name('transactions.store');
+    Route::get('transactions/suggest-category', [TransactionController::class, 'suggestCategory'])->name('transactions.suggest-category');
     Route::put('transactions/{transaction}', [TransactionController::class, 'update'])->name('transactions.update');
     Route::patch('transactions/{transaction}/exclusion', [TransactionController::class, 'exclusion'])->name('transactions.exclusion');
     Route::post('transactions/{transaction}/refunds', [TransactionController::class, 'storeRefund'])->name('transactions.refunds.store');
@@ -70,6 +71,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     // Rozpočty
     Route::get('budgets', [BudgetController::class, 'index'])->name('budgets.index');
     Route::post('budgets', [BudgetController::class, 'store'])->name('budgets.store');
+    Route::get('budgets/{budget}/transactions', [BudgetController::class, 'transactions'])->name('budgets.transactions');
     Route::put('budgets/{budget}', [BudgetController::class, 'update'])->name('budgets.update');
     Route::delete('budgets/{budget}', [BudgetController::class, 'destroy'])->name('budgets.destroy');
 

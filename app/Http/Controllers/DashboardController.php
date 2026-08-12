@@ -85,7 +85,7 @@ class DashboardController extends Controller
             ] : null,
             'netWorthSeries' => $netWorth->monthlySeries($user),
             'reserve' => $finance->reserve($user),
-            'insights' => array_slice($analytics->insights($user), 0, 2),
+            'insights' => array_slice($analytics->insights($user, $period), 0, 2),
             'portfolio' => $portfolio,
             'spendCats' => $spendCats,
             'upcoming' => $finance->upcomingPayments($user, 30),

@@ -58,6 +58,17 @@ class Transaction extends Model
         return DB::raw(self::NET_AMOUNT);
     }
 
+    /**
+     * Mesiac ako 'YYYY-MM' pre GROUP BY. Produkcia beží na MySQL, testy na
+     * SQLite — každá má na to vlastnú funkciu.
+     */
+    public static function yearMonth(string $column = 'date'): string
+    {
+        return DB::connection()->getDriverName() === 'sqlite'
+            ? "strftime('%Y-%m', {$column})"
+            : "DATE_FORMAT({$column}, '%Y-%m')";
+    }
+
     /** Suma po odrátaní vrátení — to, čo ma nákup reálne stál. */
     public function getNetAmountAttribute(): float
     {
