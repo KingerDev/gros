@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import AddButton from '@/components/gros/AddButton.vue';
+import AskAi from '@/components/gros/AskAi.vue';
 import Card from '@/components/gros/Card.vue';
 import DeltaBadge from '@/components/gros/DeltaBadge.vue';
 import DonutChart from '@/components/gros/DonutChart.vue';
@@ -13,7 +14,7 @@ import TransactionModal from '@/components/gros/TransactionModal.vue';
 import { useGros } from '@/composables/useGros';
 import GrosLayout from '@/layouts/GrosLayout.vue';
 import { Head, Link } from '@inertiajs/vue3';
-import { computed, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 
 interface SpendCat {
     category_id: number;
@@ -106,6 +107,22 @@ const props = defineProps<{
     prevStats: { label: string; income: number; expense: number; saved: number } | null;
     netWorthSeries: NetWorthMonth[];
     reserve: { avgExpense: number; months: number | null };
+    aiConfigured: boolean;
+    anomalies: {
+        id: number;
+        date: string;
+        note: string | null;
+        amount: number;
+        category: string | null;
+        color: string | null;
+        usual: number;
+        times: number;
+    }[];
+    savingsRate: {
+        windows: Record<number, { months: number; income: number; expense: number; rate: number | null }>;
+        years: Record<number, number | null>;
+        trend: { current: number; previous: number; delta: number } | null;
+    };
     insights: Insight[];
     portfolio: { value: number; cost: number; gain: number; pct: number };
     spendCats: SpendCat[];
@@ -136,6 +153,39 @@ function deltaPct(cur: number, prev: number | undefined): number | null {
 const incomeDelta = computed(() => deltaPct(props.stats.income, props.prevStats?.income));
 const expenseDelta = computed(() => deltaPct(props.stats.expense, props.prevStats?.expense));
 const savedDelta = computed(() => deltaPct(props.stats.saved, props.prevStats?.saved));
+
+// ── Mesačný komentár (lazy, aby nebrzdil načítanie) ─────────────────────
+const briefing = ref<{ ok: boolean; text?: string } | null>(null);
+
+onMounted(async () => {
+    if (!props.aiConfigured) return;
+    try {
+        const r = await fetch('/assistant-briefing', { headers: { Accept: 'application/json' }, credentials: 'same-origin' });
+        briefing.value = await r.json();
+    } catch {
+        briefing.value = null;
+    }
+});
+
+// ── Núdzový fond ────────────────────────────────────────────────────────
+/** Odporúčaná rezerva: šesť mesiacov výdavkov. */
+const RESERVE_TARGET = 6;
+
+const reservePct = computed(() => Math.min(100, ((props.reserve.months ?? 0) / RESERVE_TARGET) * 100));
+
+const reserveColor = computed(() => {
+    const m = props.reserve.months ?? 0;
+    if (m >= RESERVE_TARGET) return '#2ba35a';
+    if (m >= 3) return '#e8954e';
+    return '#e8544e';
+});
+
+const reserveLabel = computed(() => {
+    const m = props.reserve.months ?? 0;
+    if (m >= RESERVE_TARGET) return `Rezerva je plná — ${RESERVE_TARGET} mesiacov výdavkov máš pokrytých.`;
+    const missing = Math.max(0, RESERVE_TARGET * props.reserve.avgExpense - (props.reserve.months ?? 0) * props.reserve.avgExpense);
+    return `Do šesťmesačnej rezervy chýba ${eur(missing)}. Bez nej ťa prvý krach donúti predať investície.`;
+});
 
 // Vývoj čistého imania
 const nwPoints = computed(() =>
@@ -237,6 +287,60 @@ const planColor = computed(() =>
                 <div class="font-display" style="font-weight: 800; font-size: 20px; margin-bottom: 6px">Vitaj v Groši 👋</div>
                 <div style="color: #8a8c9a; font-size: 14px; font-weight: 500">
                     Začni pridaním účtu v sekcii <strong>Účty</strong> a potom si zapisuj transakcie. Prehľad sa naplní automaticky.
+                </div>
+            </div>
+
+            <!-- Mesačný komentár od asistenta -->
+            <Link
+                v-if="briefing?.ok && briefing.text"
+                href="/assistant?q=Rozober%20mi%20podrobnejšie%2C%20čo%20sa%20tento%20mesiac%20zmenilo"
+                style="
+                    display: flex;
+                    align-items: flex-start;
+                    gap: 12px;
+                    background: #fff;
+                    border-radius: 20px;
+                    padding: 18px 22px;
+                    margin-bottom: 14px;
+                "
+                :style="{ boxShadow: cardShadow }"
+            >
+                <span style="font-size: 18px; flex-shrink: 0">✨</span>
+                <div style="flex: 1; min-width: 0">
+                    <div style="font-size: 14px; font-weight: 600; color: #20212e; line-height: 1.65">{{ briefing.text }}</div>
+                    <div style="font-size: 11.5px; color: #b0b2bd; font-weight: 700; margin-top: 8px">Spýtať sa na detaily →</div>
+                </div>
+            </Link>
+
+            <!-- Nezvyčajné výdavky -->
+            <div
+                v-if="anomalies.length"
+                style="background: #fff; border-radius: 20px; padding: 18px 22px; margin-bottom: 14px"
+                :style="{ boxShadow: cardShadow }"
+            >
+                <div style="display: flex; align-items: center; gap: 8px">
+                    <span style="font-size: 15px">📌</span>
+                    <span style="font-size: 12.5px; font-weight: 800; color: #20212e">Nezvyčajné výdavky</span>
+                    <span style="font-size: 11.5px; font-weight: 600; color: #b0b2bd">za posledných 45 dní</span>
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 12px">
+                    <div v-for="a in anomalies" :key="a.id" style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 13px">
+                        <span
+                            style="width: 9px; height: 9px; border-radius: 3px; flex-shrink: 0"
+                            :style="{ background: a.color ?? '#b0b2bd' }"
+                        ></span>
+                        <span style="font-weight: 700">{{ a.note || a.category || 'Bez popisu' }}</span>
+                        <span style="font-size: 11.5px; color: #9a9cab; font-weight: 600">{{ formatDate(a.date) }} · {{ a.category }}</span>
+                        <span style="margin-left: auto; display: flex; align-items: baseline; gap: 8px">
+                            <span style="font-size: 11.5px; color: #9a9cab; font-weight: 600">bežne {{ eur(a.usual) }}</span>
+                            <span class="font-display" style="font-weight: 800; font-size: 15px">{{ eur(a.amount) }}</span>
+                            <span
+                                style="font-size: 11px; font-weight: 800; color: #c0453f; background: #fdeaea; padding: 3px 7px; border-radius: 20px"
+                            >
+                                {{ num(a.times, 1) }}×
+                            </span>
+                        </span>
+                    </div>
                 </div>
             </div>
 
@@ -343,11 +447,78 @@ const planColor = computed(() =>
                             <path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z" />
                         </svg>
                     </template>
-                    <div style="font-size: 12px; font-weight: 600; color: #9a9cab; margin-top: 7px">
-                        {{ reserve.months !== null ? 'hotovosť pokryje výdavky' : 'zatiaľ málo dát o výdavkoch' }}
-                    </div>
+                    <template v-if="reserve.months !== null">
+                        <div style="height: 6px; border-radius: 4px; background: #f1efe8; overflow: hidden; margin-top: 10px">
+                            <div style="height: 100%; border-radius: 4px" :style="{ width: reservePct + '%', background: reserveColor }"></div>
+                        </div>
+                        <Link
+                            href="/reserve"
+                            style="display: block; font-size: 12px; font-weight: 600; color: #9a9cab; margin-top: 7px; line-height: 1.5"
+                        >
+                            {{ reserveLabel }}
+                        </Link>
+                    </template>
+                    <div v-else style="font-size: 12px; font-weight: 600; color: #9a9cab; margin-top: 7px">zatiaľ málo dát o výdavkoch</div>
                 </StatCard>
             </div>
+
+            <AskAi
+                v-if="aiConfigured"
+                style="margin-top: 14px"
+                :questions="[
+                    'Prečo som tento mesiac minul viac ako minulý?',
+                    'Na čom by som vedel najviac ušetriť?',
+                    'Koľko mi reálne mesačne ostáva?',
+                ]"
+            />
+
+            <!-- Miera úspor → roky do slobody -->
+            <Link
+                v-if="savingsRate.windows[12].rate !== null"
+                href="/retirement"
+                style="
+                    display: flex;
+                    align-items: center;
+                    flex-wrap: wrap;
+                    gap: 16px;
+                    background: #fff;
+                    border-radius: 20px;
+                    padding: 18px 22px;
+                    box-shadow: 0 4px 18px rgba(60, 55, 40, 0.05);
+                    margin-top: 14px;
+                "
+            >
+                <div>
+                    <div style="font-size: 12px; font-weight: 700; color: #8a8c9a">Miera úspor za rok</div>
+                    <div
+                        class="font-display"
+                        style="font-weight: 800; font-size: 26px; letter-spacing: -0.8px; margin-top: 3px"
+                        :style="{ color: (savingsRate.windows[12].rate ?? 0) >= 0 ? '#2ba35a' : '#e8544e' }"
+                    >
+                        {{ num(savingsRate.windows[12].rate ?? 0, 1) }} %
+                    </div>
+                </div>
+                <div style="width: 1px; align-self: stretch; background: #f1efe8"></div>
+                <div style="flex: 1; min-width: 190px">
+                    <div style="font-size: 13.5px; font-weight: 700; line-height: 1.5">
+                        <template v-if="savingsRate.years[12] !== null">
+                            Pri tomto tempe si finančne slobodný o
+                            <span :style="{ color: primary }">{{ num(savingsRate.years[12] ?? 0, 0) }} rokov</span>.
+                        </template>
+                        <template v-else>Zatiaľ míňaš viac, než zarobíš — takto sa k slobode nepriblížiš.</template>
+                    </div>
+                    <div style="font-size: 11.5px; color: #9a9cab; font-weight: 600; margin-top: 4px">
+                        Rozhoduje podiel príjmu, ktorý odkladáš — nie jeho výška. Pozri projekciu →
+                    </div>
+                </div>
+                <div
+                    v-if="savingsRate.trend"
+                    style="font-size: 12px; font-weight: 700; white-space: nowrap"
+                    :style="{ color: savingsRate.trend.delta >= 0 ? '#2ba35a' : '#e8544e' }"
+                >
+                    {{ savingsRate.trend.delta >= 0 ? '↑' : '↓' }} {{ num(Math.abs(savingsRate.trend.delta), 1) }} p.b.
+                </div>
+            </Link>
 
             <!-- Vývoj čistého imania -->
             <div v-if="netWorthSeries.length >= 2" style="margin-top: 14px">

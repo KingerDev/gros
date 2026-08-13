@@ -11,10 +11,15 @@ use Illuminate\Support\Collection;
 
 class AnalyticsService
 {
+    public function __construct(protected ExpenseClassifier $classifier) {}
+
     /** Základné súčty za obdobie (bez prevodov). Výdavky sú čisté — po odrátaní vrátení. */
     public function summary(User $user, Period $period): array
     {
-        $rows = $period->apply($user->transactions()->analyzed()->where('type', '!=', 'transfer'))->get(['type', 'amount', 'refunded_amount']);
+        // presuny do portfólia nie sú spotreba — do výdavkov ani do miery úspor nepatria
+        $rows = $period->apply($this->classifier->excludeSavings(
+            $user->transactions()->analyzed()->where('type', '!=', 'transfer'), $user
+        ))->get(['type', 'amount', 'refunded_amount']);
         $income = (float) $rows->where('type', 'income')->sum('amount');
         $expense = (float) $rows->where('type', 'expense')->sum('net_amount');
 
@@ -34,7 +39,9 @@ class AnalyticsService
      */
     public function byCategory(User $user, Period $period, string $type): Collection
     {
-        $rows = $period->apply($user->transactions()->analyzed()->where('type', $type)->whereNotNull('category_id'))
+        $rows = $period->apply($this->classifier->excludeSavings(
+            $user->transactions()->analyzed()->where('type', $type)->whereNotNull('category_id'), $user
+        ))
             ->selectRaw('category_id, '.Transaction::netSum('amount').', count(*) as cnt')
             ->groupBy('category_id')
             ->orderByDesc('amount')

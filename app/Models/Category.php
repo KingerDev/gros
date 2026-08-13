@@ -8,7 +8,9 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Category extends Model
 {
-    protected $fillable = ['user_id', 'parent_id', 'name', 'type', 'color', 'icon', 'position'];
+    protected $fillable = ['user_id', 'parent_id', 'name', 'type', 'is_savings', 'color', 'icon', 'position'];
+
+    protected $casts = ['is_savings' => 'boolean'];
 
     public function user(): BelongsTo
     {

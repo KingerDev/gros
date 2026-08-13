@@ -16,7 +16,7 @@ interface Account {
 
 const props = defineProps<{ accounts: Account[]; total: number }>();
 
-const { eur, eurS, num, grad, primarySoft, hexToRgba } = useGros();
+const { eurS, num, grad, primarySoft, hexToRgba } = useGros();
 
 const modalOpen = ref(false);
 const editAccount = ref<Account | null>(null);

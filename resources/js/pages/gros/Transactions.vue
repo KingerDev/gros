@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import AddButton from '@/components/gros/AddButton.vue';
+import AskAi from '@/components/gros/AskAi.vue';
 import ExclusionModal from '@/components/gros/ExclusionModal.vue';
 import PeriodSelector from '@/components/gros/PeriodSelector.vue';
 import RefundModal from '@/components/gros/RefundModal.vue';
@@ -49,9 +50,10 @@ const props = defineProps<{
     dataRange: { min: string | null; max: string | null };
 }>();
 
-const { eur, primary, catName, catColor, catGlyph, hexToRgba, formatDate } = useGros();
+const { eur, primary, categoryById, catName, catColor, catGlyph, hexToRgba, formatDate } = useGros();
 
 const filter = ref<'all' | 'income' | 'expense' | 'transfer'>('all');
+const query = ref('');
 
 function transferPath(t: Txn): string {
     return `${t.account?.name ?? '—'} → ${t.to_account?.name ?? '—'}`;
@@ -60,8 +62,105 @@ function transferPath(t: Txn): string {
 const showModal = ref(false);
 const editTxn = ref<Txn | null>(null);
 
-// Obdobie orezáva už server, tu ostáva len filter typu
-const filtered = computed(() => props.transactions.filter((t) => (filter.value === 'all' ? true : t.type === filter.value)));
+// ── Vyhľadávanie ────────────────────────────────────────────────────────
+/** Bez diakritiky a malými — „restauracia" nájde „Reštaurácia". */
+function normalize(s: string): string {
+    return s
+        .normalize('NFD')
+        .replace(/\p{Diacritic}/gu, '')
+        .toLowerCase();
+}
+
+function typeLabel(t: Txn): string {
+    if (t.refund_for_id) return 'vrátenie refundácia';
+    return t.type === 'income' ? 'príjem' : t.type === 'transfer' ? 'prevod' : 'výdavok';
+}
+
+/** Všetko, v čom sa dá transakciu nájsť, zlepené do jedného reťazca. */
+function haystack(t: Txn): string {
+    const category = categoryById(t.category_id);
+    const group = category?.parent_id ? catName(category.parent_id) : '';
+    const amount = Number(t.amount);
+
+    return normalize(
+        [
+            t.note ?? '',
+            t.type === 'transfer' ? transferPath(t) : (category?.name ?? ''),
+            group,
+            t.account?.name ?? '',
+            t.to_account?.name ?? '',
+            typeLabel(t),
+            t.exclusion_reason ?? '',
+            (t.refunds ?? []).map((r) => r.note ?? '').join(' '),
+            t.date,
+            formatDate(t.date),
+            amount.toFixed(2),
+            amount.toFixed(2).replace('.', ','),
+            String(amount),
+        ].join(' '),
+    );
+}
+
+/** Predpočítané reťazce — hľadá sa pri každom písmene, nech to netrhá. */
+const haystacks = computed(() => {
+    const map = new Map<number, string>();
+    for (const t of props.transactions) map.set(t.id, haystack(t));
+    return map;
+});
+
+/**
+ * Jeden výraz z dopytu. Okrem textu rozumie aj sumám: `>100`, `<50`,
+ * `100-200` a `=45`.
+ */
+function matchesTerm(t: Txn, term: string): boolean {
+    const amount = Number(t.amount);
+    const netAmount = net(t);
+
+    // „2026-05" je dátum, nie rozsah súm — inak by pomlčka zmiatla výpočet
+    if (/^\d{4}-\d{1,2}(-\d{1,2})?$/.test(term)) {
+        return (haystacks.value.get(t.id) ?? '').includes(normalize(term));
+    }
+
+    const range = term.match(/^(\d+(?:[.,]\d+)?)-(\d+(?:[.,]\d+)?)$/);
+    if (range) {
+        const lo = Number(range[1].replace(',', '.'));
+        const hi = Number(range[2].replace(',', '.'));
+        return (amount >= lo && amount <= hi) || (netAmount >= lo && netAmount <= hi);
+    }
+
+    const compare = term.match(/^([<>]=?|=)(\d+(?:[.,]\d+)?)$/);
+    if (compare) {
+        const value = Number(compare[2].replace(',', '.'));
+        switch (compare[1]) {
+            case '>':
+                return amount > value;
+            case '>=':
+                return amount >= value;
+            case '<':
+                return amount < value;
+            case '<=':
+                return amount <= value;
+            default:
+                return Math.abs(amount - value) < 0.005;
+        }
+    }
+
+    return (haystacks.value.get(t.id) ?? '').includes(normalize(term));
+}
+
+const terms = computed(() => query.value.trim().split(/\s+/).filter(Boolean));
+
+// Obdobie orezáva už server; tu ostáva filter typu a hľadanie
+const filtered = computed(() =>
+    props.transactions.filter((t) => (filter.value === 'all' || t.type === filter.value) && terms.value.every((term) => matchesTerm(t, term))),
+);
+
+const searching = computed(() => terms.value.length > 0);
+
+/** Hľadanie beží len nad načítaným obdobím — inde treba prepnúť na celé. */
+function searchEverywhere() {
+    router.get('/transactions', { period: 'all' }, { preserveScroll: true, preserveState: true, replace: true });
+}
 
 /** Suma po odrátaní vrátení — to, čo transakcia reálne stála. */
 function net(t: Txn): number {
@@ -163,6 +262,96 @@ function exportCsv() {
         </template>
 
         <div class="gros-rise">
+            <!-- Vyhľadávanie naprieč poznámkou, kategóriou, účtom, dátumom aj sumou -->
+            <div style="position: relative; margin-bottom: 12px">
+                <svg
+                    width="17"
+                    height="17"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="#b0b2bd"
+                    stroke-width="2.3"
+                    stroke-linecap="round"
+                    style="position: absolute; left: 16px; top: 50%; transform: translateY(-50%); pointer-events: none"
+                >
+                    <circle cx="11" cy="11" r="7" />
+                    <path d="m20 20-3.5-3.5" />
+                </svg>
+                <input
+                    v-model="query"
+                    type="search"
+                    placeholder="Hľadaj podľa poznámky, kategórie, účtu, dátumu alebo sumy…"
+                    style="
+                        width: 100%;
+                        background: #fff;
+                        border: none;
+                        border-radius: 15px;
+                        padding: 14px 44px;
+                        font-size: 14.5px;
+                        font-weight: 600;
+                        color: #20212e;
+                        outline: none;
+                        box-shadow: 0 2px 8px rgba(60, 55, 40, 0.05);
+                    "
+                    @keydown.esc="query = ''"
+                />
+                <button
+                    v-if="searching"
+                    type="button"
+                    style="
+                        position: absolute;
+                        right: 12px;
+                        top: 50%;
+                        transform: translateY(-50%);
+                        width: 26px;
+                        height: 26px;
+                        border-radius: 9px;
+                        background: #f1efe8;
+                        color: #6a6c7a;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                    "
+                    title="Zrušiť hľadanie"
+                    @click="query = ''"
+                >
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round">
+                        <path d="M18 6 6 18M6 6l12 12" />
+                    </svg>
+                </button>
+            </div>
+
+            <div
+                v-if="searching"
+                style="
+                    display: flex;
+                    align-items: center;
+                    gap: 10px;
+                    flex-wrap: wrap;
+                    background: #eef6ff;
+                    border-radius: 13px;
+                    padding: 11px 15px;
+                    margin-bottom: 12px;
+                    font-size: 12.5px;
+                    font-weight: 600;
+                    color: #2a6ebd;
+                "
+            >
+                <span>
+                    <strong>{{ filtered.length }}</strong>
+                    {{ filtered.length === 1 ? 'nájdená transakcia' : filtered.length < 5 ? 'nájdené transakcie' : 'nájdených transakcií' }} v období
+                    {{ period.label.toLowerCase() }}
+                </span>
+                <button
+                    v-if="period.key !== 'all'"
+                    type="button"
+                    style="margin-left: auto; font-weight: 800; text-decoration: underline; color: #2a6ebd"
+                    @click="searchEverywhere"
+                >
+                    Hľadať v celom období →
+                </button>
+            </div>
+
             <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 14px; flex-wrap: wrap">
                 <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap">
                     <button type="button" :style="filterStyle('all')" @click="filter = 'all'">Všetko</button>
@@ -431,10 +620,28 @@ function exportCsv() {
                         </svg>
                     </button>
                 </div>
-                <div v-if="!filtered.length" style="padding: 40px 16px; text-align: center; color: #b0b2bd; font-weight: 600; font-size: 14px">
-                    Žiadne transakcie v tomto období
+                <div
+                    v-if="!filtered.length"
+                    style="padding: 40px 16px; text-align: center; color: #b0b2bd; font-weight: 600; font-size: 14px; line-height: 1.6"
+                >
+                    <template v-if="searching">
+                        Pre „{{ query }}" sa nič nenašlo.
+                        <template v-if="period.key !== 'all'">
+                            <br />
+                            <button
+                                type="button"
+                                style="color: #2a6ebd; font-weight: 700; text-decoration: underline; margin-top: 6px"
+                                @click="searchEverywhere"
+                            >
+                                Skús hľadať v celom období
+                            </button>
+                        </template>
+                    </template>
+                    <template v-else>Žiadne transakcie v tomto období</template>
                 </div>
             </div>
+
+            <AskAi style="margin-top: 14px" :questions="['Aké boli moje najväčšie výdavky tento mesiac?', 'Míňam viac než zvyčajne?']" />
         </div>
 
         <TransactionModal v-if="showModal" :accounts="accounts" :transaction="editTxn" @close="showModal = false" />

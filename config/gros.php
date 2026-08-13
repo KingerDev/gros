@@ -21,6 +21,49 @@ return [
     // Ponuka accent farieb v nastaveniach
     'accent_options' => ['#6c5ce7', '#2a7de1', '#e8544e', '#0fa3b1', '#f0692a'],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Referenčné dáta pre odhad života po škole
+    |--------------------------------------------------------------------------
+    | Slúžia len ako východisko, keď používateľ nemá vlastný odhad. Sú to
+    | verejné štatistiky, nie predpoveď — preto je pri nich uvedený zdroj
+    | aj dátum, nech je zrejmé, kedy prestali byť aktuálne.
+    */
+    'reference' => [
+        'rent' => [
+            'source' => 'Deloitte Rent Index Q1 2026',
+            'url' => 'https://www.deloitte.com/cz-sk/sk/Industries/real-estate/collections/rent-index.html',
+            'as_of' => '2026-Q1',
+            // priemerná ponuková cena za byt (EUR/mesiac)
+            'sr_average' => 736,
+            'by_size' => [
+                '1' => ['label' => '1-izbový', 'rent' => 468],
+                '2' => ['label' => '2-izbový', 'rent' => 655],
+                '3' => ['label' => '3-izbový', 'rent' => 858],
+            ],
+            'by_city' => [
+                'bratislava' => ['label' => 'Bratislava', 'rent' => 948],
+                'kosice' => ['label' => 'Košice', 'rent' => 736],
+                'nitra' => ['label' => 'Nitra', 'rent' => 664],
+                'presov' => ['label' => 'Prešov', 'rent' => 650],
+                'trnava' => ['label' => 'Trnava', 'rent' => 629],
+                'banska_bystrica' => ['label' => 'Banská Bystrica', 'rent' => 597],
+                'poprad' => ['label' => 'Poprad', 'rent' => 580],
+            ],
+        ],
+        'graduate_income' => [
+            'source' => 'Trendy práce / ISP — uplatnenie absolventov',
+            'url' => 'https://www.trendyprace.sk/sk/absolventi/sk-trendy/mzda',
+            // hrubé mesačné mzdy; čistá mzda je zhruba 78 % z hrubej
+            'gross' => [
+                'bachelor' => 1_299,
+                'master' => 1_418,
+                'experienced' => 1_536,
+            ],
+            'net_ratio' => 0.78,
+        ],
+    ],
+
     // Default strom kategórií pre nového používateľa.
     // Skupina (parent) → podkategórie (children). Skupiny slúžia ako hlavičky,
     // transakcia sa priraďuje k podkategórii (listu). Podkategórie dedia farbu
@@ -98,7 +141,7 @@ return [
             ['name' => 'Poistenia', 'icon' => '🛡️'],
             ['name' => 'Dane', 'icon' => '💸'],
         ]],
-        ['name' => 'Investície', 'type' => 'expense', 'color' => '#f06595', 'icon' => '📊', 'children' => [
+        ['name' => 'Investície', 'type' => 'expense', 'is_savings' => true, 'color' => '#f06595', 'icon' => '📊', 'children' => [
             ['name' => 'Zbierky', 'icon' => '🖼️'],
             ['name' => 'Úspory', 'icon' => '💰'],
             ['name' => 'Finančné investície', 'icon' => '📈'],

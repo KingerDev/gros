@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Investment;
 use App\Models\InvestmentTransaction;
+use App\Services\PortfolioAnalyticsService;
 use App\Services\PortfolioHistoryService;
 use App\Services\PriceService;
 use Illuminate\Http\JsonResponse;
@@ -213,6 +214,28 @@ class InvestmentController extends Controller
             ->values();
 
         return response()->json([...$data, 'holdings' => $holdings]);
+    }
+
+    /**
+     * Označí, či sa do pozície ešte prispieva. Keď nie, appka prestane
+     * upozorňovať, že jej chýbajú nové nákupy.
+     */
+    public function contributing(Request $request, Investment $investment): RedirectResponse
+    {
+        abort_unless($investment->user_id === $request->user()->id, 403);
+
+        $data = $request->validate(['contributing' => ['required', 'boolean']]);
+        $investment->update(['contributing' => $data['contributing']]);
+
+        return back()->with('success', $data['contributing']
+            ? "Do {$investment->ticker} sa opäť sleduje prispievanie."
+            : "{$investment->ticker} označené ako pozícia bez ďalších vkladov.");
+    }
+
+    /** Hlbšia analýza portfólia — XIRR, riziko, koncentrácia, benchmark (JSON, lazy). */
+    public function analytics(Request $request, PortfolioAnalyticsService $svc): JsonResponse
+    {
+        return response()->json($svc->forUser($request->user()));
     }
 
     /** Historická cena za kus k dátumu (JSON pre formulár nákupu). */

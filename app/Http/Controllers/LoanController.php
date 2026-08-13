@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Loan;
+use App\Services\LoanPlanService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -11,18 +12,24 @@ use Inertia\Response;
 
 class LoanController extends Controller
 {
-    public function index(Request $request): Response
+    public function index(Request $request, LoanPlanService $plans): Response
     {
-        $loans = $request->user()->loans()->orderByDesc('balance')->get();
+        $user = $request->user();
+        $loans = $user->loans()->orderByDesc('balance')->get();
+
+        $extra = (float) $request->integer('extra', 100);
+        $extra = max(10, min(10_000, $extra));
 
         return Inertia::render('gros/Loans', [
             'loans' => $loans,
-            'accounts' => $request->user()->accounts()->orderBy('name')->get(['id', 'name']),
+            'accounts' => $user->accounts()->orderBy('name')->get(['id', 'name']),
             'totals' => [
                 'owed' => (float) $loans->where('kind', 'owe')->sum('balance'),
                 'lent' => (float) $loans->where('kind', 'lent')->sum('balance'),
                 'monthlyPayment' => (float) $loans->where('kind', 'owe')->sum('payment'),
             ],
+            // splátkový plán + porovnanie „doplatiť skôr vs. investovať"
+            'plan' => $plans->forUser($user, $extra),
         ]);
     }
 

@@ -28,6 +28,18 @@ class User extends Authenticatable
         'privacy_mode',
         'monthly_income',
         'savings_goal',
+        'retire_year',
+        'retire_duration',
+        'retire_monthly',
+        'retire_index_contributions',
+        'retire_inflation',
+        'retire_fees',
+        'retire_haircut',
+        'retire_withdrawal',
+        'retire_engine',
+        'retire_target_income',
+        'retire_spending',
+        'reserve_profile',
     ];
 
     public function accounts(): HasMany
@@ -70,6 +82,11 @@ class User extends Authenticatable
         return $this->hasMany(Goal::class);
     }
 
+    public function chats(): HasMany
+    {
+        return $this->hasMany(Chat::class);
+    }
+
     /**
      * The attributes that should be hidden for serialization.
      *
@@ -94,6 +111,17 @@ class User extends Authenticatable
             'privacy_mode' => 'boolean',
             'monthly_income' => 'decimal:2',
             'savings_goal' => 'decimal:2',
+            'retire_year' => 'integer',
+            'retire_duration' => 'integer',
+            'retire_monthly' => 'decimal:2',
+            'retire_index_contributions' => 'boolean',
+            'retire_inflation' => 'decimal:2',
+            'retire_fees' => 'decimal:2',
+            'retire_haircut' => 'decimal:2',
+            'retire_withdrawal' => 'decimal:2',
+            'retire_target_income' => 'decimal:2',
+            'retire_spending' => 'decimal:2',
+            'reserve_profile' => 'array',
         ];
     }
 }

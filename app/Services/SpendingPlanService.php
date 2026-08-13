@@ -12,6 +12,8 @@ use Carbon\CarbonImmutable;
  */
 class SpendingPlanService
 {
+    public function __construct(protected ExpenseClassifier $classifier) {}
+
     private const MONTHS_SK = [
         1 => 'Január', 2 => 'Február', 3 => 'Marec', 4 => 'Apríl', 5 => 'Máj', 6 => 'Jún',
         7 => 'Júl', 8 => 'August', 9 => 'September', 10 => 'Október', 11 => 'November', 12 => 'December',
@@ -37,9 +39,9 @@ class SpendingPlanService
         $disposable = $income - $fixed - $savings;
 
         // Už minuté tento mesiac (len výdavky, bez prevodov, po odrátaní vrátení)
-        $spent = (float) $user->transactions()->analyzed()
+        $spent = (float) $this->classifier->excludeSavings($user->transactions()->analyzed(), $user)
             ->where('type', 'expense')
-            ->whereBetween('date', [$monthStart->toDateString(), $monthEnd->toDateString()])
+            ->whereDate('date', '>=', $monthStart->toDateString())->whereDate('date', '<=', $monthEnd->toDateString())
             ->sum(Transaction::netExpression());
 
         $safeToSpend = $disposable - $spent;
@@ -92,7 +94,7 @@ class SpendingPlanService
             $m = $today->subMonthsNoOverflow($i);
             $inc = (float) $user->transactions()->analyzed()
                 ->where('type', 'income')
-                ->whereBetween('date', [$m->startOfMonth()->toDateString(), $m->endOfMonth()->toDateString()])
+                ->whereDate('date', '>=', $m->startOfMonth()->toDateString())->whereDate('date', '<=', $m->endOfMonth()->toDateString())
                 ->sum('amount');
             if ($inc > 0) {
                 $sum += $inc;

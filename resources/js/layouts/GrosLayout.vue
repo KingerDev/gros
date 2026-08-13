@@ -11,7 +11,11 @@ import {
     LineChart,
     LogOut,
     PieChart,
+    PiggyBank,
+    Scale,
     Settings,
+    ShieldCheck,
+    Sparkles,
     TrendingUp,
     Wallet,
 } from 'lucide-vue-next';
@@ -26,10 +30,14 @@ const isDesktop = useMediaQuery('(min-width: 860px)');
 
 const nav = [
     { label: 'Prehľad', href: '/dashboard', icon: LayoutGrid },
+    { label: 'Asistent', href: '/assistant', icon: Sparkles },
     { label: 'Analýzy', href: '/analytics', icon: ChartColumnBig },
     { label: 'Účty', href: '/accounts', icon: Wallet },
     { label: 'Transakcie', href: '/transactions', icon: ArrowRightLeft },
     { label: 'Investície', href: '/investments', icon: TrendingUp },
+    { label: 'Oplatí sa?', href: '/purchase', icon: Scale },
+    { label: 'Rezerva', href: '/reserve', icon: ShieldCheck },
+    { label: 'Dôchodok', href: '/retirement', icon: PiggyBank },
     { label: 'Predplatné', href: '/subscriptions', icon: CalendarClock },
     { label: 'Úvery', href: '/loans', icon: Landmark },
     { label: 'Medziročne', href: '/yoy', icon: LineChart },

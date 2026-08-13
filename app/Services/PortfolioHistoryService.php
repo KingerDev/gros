@@ -206,7 +206,7 @@ class PortfolioHistoryService
         }
     }
 
-    protected function label(string $ym): string
+    public function label(string $ym): string
     {
         [$y, $m] = explode('-', $ym);
         $short = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'Máj', 'Jún', 'Júl', 'Aug', 'Sep', 'Okt', 'Nov', 'Dec'];

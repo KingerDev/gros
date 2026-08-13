@@ -8,9 +8,10 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Investment extends Model
 {
-    protected $fillable = ['user_id', 'ticker', 'name', 'kind', 'quote_symbol', 'quote_source', 'units', 'buy_price', 'current_price', 'last_price_at', 'color'];
+    protected $fillable = ['user_id', 'ticker', 'name', 'kind', 'quote_symbol', 'quote_source', 'contributing', 'units', 'buy_price', 'current_price', 'last_price_at', 'color'];
 
     protected $casts = [
+        'contributing' => 'boolean',
         'units' => 'decimal:8',
         'buy_price' => 'decimal:8',
         'current_price' => 'decimal:8',

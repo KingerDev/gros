@@ -4,8 +4,10 @@ namespace App\Services;
 
 use App\Models\Transaction;
 use App\Models\User;
+use App\Services\Ai\AiText;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
 
 /**
  * Návrh kategórie podľa poznámky — „Lidl" si zaraďoval do Potravín, tak to
@@ -21,6 +23,8 @@ class CategorySuggester
 
     /** Nanajvýš toľko slov z poznámky sa vyskúša ako záchytný bod pre SQL. */
     protected const MAX_PROBES = 3;
+
+    public function __construct(protected AiText $ai) {}
 
     public function suggest(User $user, string $note, string $type): ?int
     {
@@ -42,7 +46,56 @@ class CategorySuggester
         // LIKE v SQLite nepozná diakritiku (MySQL áno), takže cez probe prejde
         // „Lidl", ale nie „Kaviareň". Posledná šanca: porovnať kľúče v PHP nad
         // ohraničeným oknom nedávnych transakcií.
-        return $this->vote($this->history($user, $type), $key);
+        if ($winner = $this->vote($this->history($user, $type), $key)) {
+            return $winner;
+        }
+
+        // Až keď história nepomôže, spýtame sa modelu. Vlastné rozhodnutie
+        // používateľa má vždy prednosť pred odhadom.
+        return $this->askAi($user, $note, $type);
+    }
+
+    /**
+     * Odhad kategórie pre poznámku, ktorú používateľ ešte nikdy nezaraďoval.
+     * Model dostane len názvy jeho kategórií a vracia jednu z nich — nič iné
+     * sa neakceptuje, takže nemôže vymyslieť neexistujúce zaradenie.
+     */
+    protected function askAi(User $user, string $note, string $type): ?int
+    {
+        if (! $this->ai->configured()) {
+            return null;
+        }
+
+        $leaves = $user->categories()
+            ->where('type', $type)
+            ->whereNotNull('parent_id')
+            ->get(['id', 'name']);
+
+        if ($leaves->isEmpty()) {
+            return null;
+        }
+
+        // rovnaká poznámka sa nemá pýtať dvakrát
+        return Cache::remember(
+            'catguess:'.$user->id.':'.$type.':'.md5($this->key($note)),
+            now()->addDays(30),
+            function () use ($leaves, $note, $type) {
+                $list = $leaves->map(fn ($c) => "{$c->id}: {$c->name}")->implode("\n");
+                $label = $type === 'income' ? 'príjmu' : 'výdavku';
+
+                $answer = $this->ai->askJson(
+                    'Zaraďuješ bankové transakcie do kategórií. Dostaneš zoznam kategórií a poznámku k transakcii. '.
+                    'Vráť {"category_id": <id>} s tou najvhodnejšou. Ak si nie si istý, vráť {"category_id": null}.',
+                    "Kategórie {$label}:\n{$list}\n\nPoznámka k transakcii: \"{$note}\"",
+                    config('services.openai.model_fast'),
+                );
+
+                $id = $answer['category_id'] ?? null;
+
+                // model smie vrátiť len id zo zoznamu, ktorý dostal
+                return $id !== null && $leaves->contains('id', (int) $id) ? (int) $id : null;
+            }
+        );
     }
 
     /**

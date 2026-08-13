@@ -3,6 +3,9 @@
 namespace App\Http\Controllers;
 
 use App\Services\AnalyticsService;
+use App\Services\FinancialProfileService;
+use App\Services\OpportunityCostService;
+use App\Services\RetirementService;
 use App\Support\Period;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -11,8 +14,13 @@ use Inertia\Response;
 
 class AnalyticsController extends Controller
 {
-    public function index(Request $request, AnalyticsService $analytics): Response
-    {
+    public function index(
+        Request $request,
+        AnalyticsService $analytics,
+        FinancialProfileService $profiles,
+        RetirementService $retirement,
+        OpportunityCostService $cost,
+    ): Response {
         $user = $request->user();
         $period = Period::fromRequest($request);
 
@@ -27,6 +35,15 @@ class AnalyticsController extends Controller
             'insights' => $analytics->insights($user, $period),
             'periodReport' => $analytics->periodReport($user, $period),
             'fixedVsVariable' => $analytics->fixedVsVariable($user, 12),
+            'savingsRate' => $profiles->savingsRateReport(
+                $user,
+                $retirement->realReturnAssumption($user),
+                (float) ($user->retire_withdrawal ?? 4)
+            ),
+            'opportunityCost' => [
+                'context' => $cost->context($user),
+                'categories' => $cost->categories($user, 12, 6),
+            ],
         ]);
     }
 

@@ -2,12 +2,16 @@
 
 use App\Http\Controllers\AccountController;
 use App\Http\Controllers\AnalyticsController;
+use App\Http\Controllers\AssistantController;
 use App\Http\Controllers\BudgetController;
 use App\Http\Controllers\CategoryController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\GoalController;
 use App\Http\Controllers\InvestmentController;
 use App\Http\Controllers\LoanController;
+use App\Http\Controllers\PurchaseController;
+use App\Http\Controllers\ReserveController;
+use App\Http\Controllers\RetirementController;
 use App\Http\Controllers\SubscriptionController;
 use App\Http\Controllers\TransactionController;
 use App\Http\Controllers\YoyController;
@@ -45,11 +49,33 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('investments', [InvestmentController::class, 'store'])->name('investments.store');
     Route::post('investments/refresh', [InvestmentController::class, 'refresh'])->name('investments.refresh');
     Route::get('investments/history', [InvestmentController::class, 'history'])->name('investments.history');
+    Route::get('investments/analytics', [InvestmentController::class, 'analytics'])->name('investments.analytics');
     Route::put('investments/{investment}', [InvestmentController::class, 'update'])->name('investments.update');
     Route::delete('investments/{investment}', [InvestmentController::class, 'destroy'])->name('investments.destroy');
     Route::get('investments/{investment}/price', [InvestmentController::class, 'historicalPrice'])->name('investments.price');
+    Route::patch('investments/{investment}/contributing', [InvestmentController::class, 'contributing'])->name('investments.contributing');
     Route::post('investments/{investment}/lots', [InvestmentController::class, 'storeLot'])->name('investments.lots.store');
     Route::delete('investments/{investment}/lots/{lot}', [InvestmentController::class, 'destroyLot'])->name('investments.lots.destroy');
+
+    // Asistent
+    Route::get('assistant', [AssistantController::class, 'index'])->name('assistant.index');
+    Route::get('assistant/{chat}', [AssistantController::class, 'index'])->name('assistant.chat');
+    Route::post('assistant/send', [AssistantController::class, 'send'])->name('assistant.send');
+    Route::get('assistant-briefing', [AssistantController::class, 'briefing'])->name('assistant.briefing');
+    Route::delete('assistant/{chat}', [AssistantController::class, 'destroy'])->name('assistant.destroy');
+
+    // Oplatí sa mi to?
+    Route::get('purchase', [PurchaseController::class, 'index'])->name('purchase.index');
+    Route::get('purchase/calculate', [PurchaseController::class, 'calculate'])->name('purchase.calculate');
+
+    // Núdzový fond
+    Route::get('reserve', [ReserveController::class, 'index'])->name('reserve.index');
+    Route::post('reserve', [ReserveController::class, 'store'])->name('reserve.store');
+
+    // Dôchodok
+    Route::get('retirement', [RetirementController::class, 'index'])->name('retirement.index');
+    Route::get('retirement/simulate', [RetirementController::class, 'simulate'])->name('retirement.simulate');
+    Route::post('retirement', [RetirementController::class, 'store'])->name('retirement.store');
 
     // Predplatné
     Route::get('subscriptions', [SubscriptionController::class, 'index'])->name('subscriptions.index');

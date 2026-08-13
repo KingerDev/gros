@@ -16,6 +16,8 @@ use Illuminate\Support\Collection;
  */
 class FinanceService
 {
+    public function __construct(protected ExpenseClassifier $classifier) {}
+
     /** Hodnota, vklad a zisk portfólia. */
     public function portfolio(User $user): array
     {
@@ -103,9 +105,9 @@ class FinanceService
 
         for ($i = 1; $i <= 6; $i++) {
             $m = $today->subMonthsNoOverflow($i);
-            $exp = (float) $user->transactions()->analyzed()
+            $exp = (float) $this->classifier->excludeSavings($user->transactions()->analyzed(), $user)
                 ->where('type', 'expense')
-                ->whereBetween('date', [$m->startOfMonth()->toDateString(), $m->endOfMonth()->toDateString()])
+                ->whereDate('date', '>=', $m->startOfMonth()->toDateString())->whereDate('date', '<=', $m->endOfMonth()->toDateString())
                 ->sum(Transaction::netExpression());
             if ($exp > 0) {
                 $sum += $exp;
@@ -206,7 +208,7 @@ class FinanceService
     /** Príjmy/výdavky za posledných N dní (vrátane dneška). */
     public function flowSince(User $user, CarbonImmutable $from): array
     {
-        $rows = $user->transactions()->analyzed()
+        $rows = $this->classifier->excludeSavings($user->transactions()->analyzed(), $user)
             ->where('date', '>=', $from->toDateString())
             ->get(['type', 'amount', 'refunded_amount']);
 
@@ -223,7 +225,7 @@ class FinanceService
     /** Výdavky zoskupené podľa kategórie (category_id) od dátumu. */
     public function expensesByCategory(User $user, CarbonImmutable $from): Collection
     {
-        return $user->transactions()->analyzed()
+        return $this->classifier->excludeSavings($user->transactions()->analyzed(), $user)
             ->where('type', 'expense')
             ->whereNotNull('category_id')
             ->where('date', '>=', $from->toDateString())
@@ -243,7 +245,7 @@ class FinanceService
         $today = CarbonImmutable::today();
         $start = $today->startOfMonth()->subMonths($months - 1);
 
-        $rows = $user->transactions()->analyzed()
+        $rows = $this->classifier->excludeSavings($user->transactions()->analyzed(), $user)
             ->where('date', '>=', $start->toDateString())
             ->get(['type', 'amount', 'refunded_amount', 'date']);
 
@@ -267,7 +269,7 @@ class FinanceService
     /** Príjmy/výdavky/čistý tok + investované (nákupy lots) po rokoch (medziročne). */
     public function yearlyHistory(User $user): Collection
     {
-        $rows = $user->transactions()->analyzed()->get(['type', 'amount', 'refunded_amount', 'date']);
+        $rows = $this->classifier->excludeSavings($user->transactions()->analyzed(), $user)->get(['type', 'amount', 'refunded_amount', 'date']);
 
         $lots = InvestmentTransaction::query()
             ->whereIn('investment_id', $user->investments()->select('id'))

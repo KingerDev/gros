@@ -118,6 +118,10 @@ function toggleExcluded() {
 
 const isTransfer = computed(() => form.type === 'transfer');
 
+// Zúženie typu tu, nie v šablóne — zvislítko v type union tam eslint číta
+// ako zastaraný Vue filter.
+const categoryType = computed(() => (form.type === 'income' ? 'income' : 'expense'));
+
 watch(
     () => form.type,
     (t) => {
@@ -250,7 +254,7 @@ function destroy() {
         <template v-else-if="!isTransfer">
             <label class="gros-label">Kategória</label>
             <div style="margin-bottom: 18px">
-                <CategorySelect v-model="form.category_id" :type="form.type as 'income' | 'expense'" />
+                <CategorySelect v-model="form.category_id" :type="categoryType" />
                 <div v-if="form.errors.category_id" style="color: #e8544e; font-size: 12px; font-weight: 600; margin-top: 6px">Vyber kategóriu.</div>
             </div>
 

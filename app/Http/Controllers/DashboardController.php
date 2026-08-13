@@ -4,8 +4,11 @@ namespace App\Http\Controllers;
 
 use App\Models\Transaction;
 use App\Services\AnalyticsService;
+use App\Services\AnomalyDetector;
 use App\Services\FinanceService;
+use App\Services\FinancialProfileService;
 use App\Services\NetWorthService;
+use App\Services\RetirementService;
 use App\Services\SpendingPlanService;
 use App\Support\Period;
 use Illuminate\Http\Request;
@@ -20,6 +23,9 @@ class DashboardController extends Controller
         AnalyticsService $analytics,
         SpendingPlanService $plan,
         NetWorthService $netWorth,
+        FinancialProfileService $profiles,
+        RetirementService $retirement,
+        AnomalyDetector $anomalies,
     ): Response {
         $user = $request->user();
         $period = Period::fromRequest($request);
@@ -85,6 +91,14 @@ class DashboardController extends Controller
             ] : null,
             'netWorthSeries' => $netWorth->monthlySeries($user),
             'reserve' => $finance->reserve($user),
+            // nezvyčajné výdavky — čisto štatisticky, bez AI
+            'anomalies' => $anomalies->recent($user),
+            'aiConfigured' => (bool) config('services.openai.key'),
+            'savingsRate' => $profiles->savingsRateReport(
+                $user,
+                $retirement->realReturnAssumption($user),
+                (float) ($user->retire_withdrawal ?? 4)
+            ),
             'insights' => array_slice($analytics->insights($user, $period), 0, 2),
             'portfolio' => $portfolio,
             'spendCats' => $spendCats,
