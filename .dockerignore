@@ -1,0 +1,9 @@
+node_modules
+vendor
+.git
+.env
+storage/logs/*
+storage/framework/cache/*
+public/build
+design
+tests
