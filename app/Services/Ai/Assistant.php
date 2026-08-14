@@ -141,7 +141,10 @@ class Assistant
      */
     protected function history(Chat $chat): array
     {
-        $messages = $chat->messages()->orderByDesc('id')->limit(self::HISTORY_LIMIT)->get()
+        // reorder() je nutný: relácia messages() radí vzostupne, takže samotné
+        // orderByDesc() by sa pripojilo ako druhé kritérium a nezmenilo nič —
+        // orezali by sa najstaršie správy a poradie by sa reverse() prevrátilo.
+        $messages = $chat->messages()->reorder()->orderByDesc('id')->limit(self::HISTORY_LIMIT)->get()
             ->reverse()->values();
 
         $answered = $messages->where('role', 'tool')->pluck('tool_call_id')->filter()->flip();

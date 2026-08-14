@@ -198,6 +198,38 @@ class AssistantTest extends TestCase
         $this->assertLessThan(20, $chat->messages()->count());
     }
 
+    public function test_history_reaches_the_model_oldest_first(): void
+    {
+        $chat = $this->user->chats()->create();
+        $chat->messages()->create(['role' => 'user', 'content' => 'prva']);
+        $chat->messages()->create(['role' => 'assistant', 'content' => 'druha']);
+
+        Http::fake(['*' => Http::response($this->reply('Jasné.'))]);
+        app(Assistant::class)->ask($chat, 'tretia');
+
+        $sent = collect(Http::recorded()->last()[0]->data()['messages'])
+            ->reject(fn ($m) => $m['role'] === 'system')->pluck('content')->all();
+
+        $this->assertSame(['prva', 'druha', 'tretia'], $sent);
+    }
+
+    public function test_truncation_keeps_the_newest_messages(): void
+    {
+        $chat = $this->user->chats()->create();
+        for ($i = 1; $i <= 60; $i++) {
+            $chat->messages()->create(['role' => 'user', 'content' => "sprava {$i}"]);
+        }
+
+        Http::fake(['*' => Http::response($this->reply('Jasné.'))]);
+        app(Assistant::class)->ask($chat, 'najnovsia');
+
+        $sent = collect(Http::recorded()->last()[0]->data()['messages'])->pluck('content');
+
+        // najnovšia otázka sa modelu musí dostať, najstaršie sa orežú
+        $this->assertSame('najnovsia', $sent->last());
+        $this->assertFalse($sent->contains('sprava 1'));
+    }
+
     public function test_a_dangling_tool_call_does_not_break_the_chat_forever(): void
     {
         $chat = $this->user->chats()->create();
