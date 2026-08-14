@@ -6,6 +6,7 @@ use App\Models\Chat;
 use App\Models\ChatMessage;
 use App\Models\User;
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
 
@@ -50,19 +51,20 @@ class Assistant
 
             $toolCalls = $message['tool_calls'] ?? null;
 
-            $saved = $chat->messages()->create([
-                'role' => 'assistant',
-                'content' => $message['content'] ?? null,
-                'tool_calls' => $toolCalls,
-            ]);
-
             if (! $toolCalls) {
+                $saved = $chat->messages()->create([
+                    'role' => 'assistant',
+                    'content' => $message['content'] ?? null,
+                ]);
                 $chat->update(['last_message_at' => now()]);
 
                 return $saved;
             }
 
-            // model si vypýtal dáta — spustíme nástroje a vrátime mu výsledky
+            // Model si vypýtal dáta. Nástroje spustíme ešte pred zápisom, aby
+            // sa volanie aj jeho výsledky uložili naraz — polovica dvojice by
+            // chat natrvalo pokazila (rozhranie modelu ju odmieta).
+            $results = [];
             foreach ($toolCalls as $call) {
                 $name = $call['function']['name'] ?? '';
                 $args = json_decode($call['function']['arguments'] ?? '{}', true) ?: [];
@@ -73,13 +75,25 @@ class Assistant
                     $result = ['error' => $e->getMessage()];
                 }
 
-                $chat->messages()->create([
+                $results[] = [
                     'role' => 'tool',
                     'name' => $name,
                     'tool_call_id' => $call['id'] ?? null,
                     'content' => json_encode($result, JSON_UNESCAPED_UNICODE),
-                ]);
+                ];
             }
+
+            DB::transaction(function () use ($chat, $message, $toolCalls, $results) {
+                $chat->messages()->create([
+                    'role' => 'assistant',
+                    'content' => $message['content'] ?? null,
+                    'tool_calls' => $toolCalls,
+                ]);
+
+                foreach ($results as $result) {
+                    $chat->messages()->create($result);
+                }
+            });
         }
 
         // poistka proti nekonečnému dopytovaniu
@@ -97,12 +111,7 @@ class Assistant
             throw new RuntimeException('Chýba OPENAI_API_KEY v .env.');
         }
 
-        $history = $chat->messages()->orderByDesc('id')->limit(self::HISTORY_LIMIT)->get()
-            ->reverse()->values()
-            // konverzácia nesmie začať výsledkom nástroja bez jeho volania
-            ->skipUntil(fn (ChatMessage $m) => $m->role !== 'tool')
-            ->map(fn (ChatMessage $m) => $m->toApi())
-            ->values()->all();
+        $history = $this->history($chat);
 
         $res = Http::withToken($key)
             ->timeout((int) config('services.openai.timeout', 120))
@@ -120,6 +129,40 @@ class Assistant
         return $res->json();
     }
 
+    /**
+     * História pre model — orezaná a očistená o rozbité dvojice volanie/výsledok.
+     *
+     * Vzniknúť môžu dvoma spôsobmi: kolo sa prerušilo po uložení volania, ale
+     * pred uložením výsledkov (staršie chaty), alebo orezanie na HISTORY_LIMIT
+     * odreže volanie a nechá visieť výsledky. Rozhranie modelu oboje odmieta
+     * chybou 400, takže bez tejto očisty by sa chat už nedal použiť.
+     *
+     * @return list<array<string, mixed>>
+     */
+    protected function history(Chat $chat): array
+    {
+        $messages = $chat->messages()->orderByDesc('id')->limit(self::HISTORY_LIMIT)->get()
+            ->reverse()->values();
+
+        $answered = $messages->where('role', 'tool')->pluck('tool_call_id')->filter()->flip();
+
+        // volanie nástroja nechávame len vtedy, keď má odpoveď každý jeho tool_call_id
+        $kept = $messages->reject(fn (ChatMessage $m) => $m->role === 'assistant' && $m->tool_calls
+            && collect($m->tool_calls)->contains(fn ($c) => ! isset($answered[$c['id'] ?? ''])));
+
+        $calledIds = $kept->where('role', 'assistant')->flatMap(fn (ChatMessage $m) => collect($m->tool_calls ?? [])
+            ->pluck('id')->filter())->flip();
+
+        return $kept
+            // a výsledky len tie, ktorým volanie ostalo
+            ->reject(fn (ChatMessage $m) => $m->role === 'tool' && ! isset($calledIds[$m->tool_call_id]))
+            // prázdna asistentova správa po zahodení volania nenesie nič
+            ->reject(fn (ChatMessage $m) => $m->role === 'assistant' && ! $m->tool_calls
+                && trim((string) $m->content) === '')
+            ->map(fn (ChatMessage $m) => $m->toApi())
+            ->values()->all();
+    }
+
     protected function systemPrompt(User $user): string
     {
         $today = CarbonImmutable::today();
@@ -130,7 +173,12 @@ class Assistant
         Dnes je {$today->toDateString()}. Používateľ sa volá {$user->name}. Meny sú v eurách.
 
         Ako pracuješ:
-        - Dáta si vypýtaj cez nástroje. Nikdy si sumy, kategórie ani dátumy nevymýšľaj a neodhaduj.
+        - Dáta si ťaháš cez nástroje, sám a hneď. Nikdy sa nepýtaj na dovolenie („môžem sa pozrieť?",
+          „chceš, aby som ti ukázal?") a nikdy nepýtaj od používateľa čísla, ktoré si vieš zistiť sám.
+          Používateľ sa pýta preto, že chce odpoveď — nie ponuku, že mu ju vieš zistiť.
+        - Nikdy nepovedz, že dáta nemáš, kým si po nich nesiahol. Keď nevieš, ktorý nástroj sedí,
+          začni s financial_overview alebo investment_portfolio.
+        - Nikdy si sumy, kategórie ani dátumy nevymýšľaj a neodhaduj.
         - Keď sa pýta „prečo som minul viac", najprv porovnaj obdobia (compare_periods), potom si vypýtaj
           konkrétne transakcie (list_transactions) z kategórií, ktoré narástli najviac. Odpoveď vždy podlož
           konkrétnymi položkami s dátumom a sumou.
@@ -138,9 +186,13 @@ class Assistant
         - Sumy uvádzaj zaokrúhlené na celé eurá, ak nejde o malé sumy.
         - Buď stručný. Odpoveď na jednoduchú otázku sú dve-tri vety, nie esej. Odrážky použi len na zoznamy položiek.
 
+        Otázky na investície (napr. „čo povieš na 200 € do BTC?") sú otázky ako každé iné — nevyhýbaj sa im.
+        Vytiahni si portfólio a financie a povedz fakty: koľko by tá suma tvorila z portfólia, ako by zmenila
+        koncentráciu, či na ňu ostáva po fixných výdavkoch a či je núdzová rezerva plná. Rozhodnutie necháš
+        na používateľa — nepovieš „kúp" ani „nekupuj", lebo nie si licencovaný poradca. Odmietnuť celú
+        odpoveď je ale horšie než ju podložiť číslami.
+
         Čo nerobíš:
-        - Nedávaš investičné odporúčania typu „kúp/predaj toto". Nie si licencovaný poradca. Fakty
-          o portfóliu (koncentrácia, volatilita, výnos) hovoriť môžeš.
         - Nemáš prístup na zápis. Ak chce používateľ niečo zmeniť, povedz mu, na ktorej stránke to urobí.
         PROMPT;
     }

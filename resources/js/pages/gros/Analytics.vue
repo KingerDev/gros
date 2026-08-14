@@ -678,8 +678,8 @@ const toneColor: Record<string, string> = { good: '#2ba35a', warn: '#c0453f', in
                             </div>
                         </div>
                         <div style="font-size: 11.5px; color: #b0b2bd; font-weight: 600; margin-top: 14px">
-                            Fixné = opakujúce sa platby (rovnaká poznámka aspoň v 3 mesiacoch) — nájom, energie, predplatné, splátky. Ak podiel
-                            fixných rastie, ukrajujú ti stále viac z príjmu.
+                            Fixné = splátky úverov a lízingov, predplatné a ručné platby s rovnakou poznámkou aspoň v 3 mesiacoch (nájom, energie). Ak
+                            podiel fixných rastie, ukrajujú ti stále viac z príjmu.
                         </div>
                     </div>
                     <div v-else style="color: #b0b2bd; font-weight: 600; font-size: 14px; padding: 24px 0">

@@ -108,7 +108,7 @@ class BackfillLeasing extends Command
             return self::SUCCESS;
         }
 
-        DB::transaction(function () use ($user, $plan, $accountId, $categoryId) {
+        DB::transaction(function () use ($user, $plan, $accountId, $categoryId, $loan) {
             foreach ($plan as $r) {
                 Transaction::create([
                     'user_id' => $user->id, 'account_id' => $accountId, 'category_id' => null,
@@ -118,10 +118,14 @@ class BackfillLeasing extends Command
                 Account::whereKey($accountId)->increment('balance', $r['income']);
 
                 if ($r['expense'] > 0) {
+                    // Doplnená splátka je rovnaký záväzok ako tá, ktorú zaúčtuje
+                    // automatika — musí niesť rovnaký source, inak ju analýzy
+                    // berú ako voľný výdavok a rezerva ju počíta dvakrát.
                     Transaction::create([
                         'user_id' => $user->id, 'account_id' => $accountId, 'category_id' => $categoryId,
                         'type' => 'expense', 'amount' => $r['expense'], 'date' => $r['date'],
                         'note' => self::TAG.' — splátka lízingu',
+                        'source' => 'loan', 'source_id' => $loan->id,
                     ]);
                     Account::whereKey($accountId)->decrement('balance', $r['expense']);
                 }

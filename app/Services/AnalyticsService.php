@@ -263,9 +263,11 @@ class AnalyticsService
     }
 
     /**
-     * Fixné vs. voľné výdavky po mesiacoch. „Fixné" = opakujúce sa platby:
-     * rovnaká poznámka (znormalizovaná) aspoň v 3 rôznych mesiacoch —
-     * typicky nájom, energie, predplatné, splátky.
+     * Fixné vs. voľné výdavky po mesiacoch. Za fixné považujeme:
+     *  a) splátky úverov/lízingov a predplatné — tie appka generuje sama,
+     *     takže o ich záväznosti vieme naisto už od prvej splátky;
+     *  b) ručne zapísané platby s rovnakou poznámkou aspoň v 3 rôznych
+     *     mesiacoch — nájom, energie a podobne, kde iný signál nemáme.
      */
     public function fixedVsVariable(User $user, int $months = 12): array
     {
@@ -275,11 +277,12 @@ class AnalyticsService
         $rows = $user->transactions()->analyzed()
             ->where('type', 'expense')
             ->where('date', '>=', $start->toDateString())
-            ->get(['amount', 'refunded_amount', 'note', 'date'])
+            ->get(['amount', 'refunded_amount', 'note', 'date', 'source'])
             ->map(fn ($t) => [
                 'ym' => $t->date->format('Y-m'),
                 'key' => mb_strtolower(trim((string) $t->note)),
                 'amount' => $t->net_amount,
+                'committed' => in_array($t->source, ['loan', 'subscription'], true),
             ]);
 
         $recurring = $rows->filter(fn ($r) => $r['key'] !== '')
@@ -289,13 +292,15 @@ class AnalyticsService
             ->all();
         $recurring = array_flip($recurring);
 
+        $isFixed = fn ($r) => $r['committed'] || isset($recurring[$r['key']]);
+
         $series = [];
         for ($i = 0; $i < $months; $i++) {
             $m = $start->addMonths($i);
             $ym = $m->format('Y-m');
             $monthRows = $rows->where('ym', $ym);
             $total = (float) $monthRows->sum('amount');
-            $fixed = (float) $monthRows->filter(fn ($r) => isset($recurring[$r['key']]))->sum('amount');
+            $fixed = (float) $monthRows->filter($isFixed)->sum('amount');
             $series[] = [
                 'ym' => $ym,
                 'label' => $this->shortMonth($m),

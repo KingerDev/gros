@@ -15,7 +15,15 @@ RUN npm run build
 
 # ---- 3. aplikácia ----
 FROM serversideup/php:8.4-fpm-nginx
-ENV AUTORUN_ENABLED=false
+# migrácie musia bežať pri každom deploy, inak sa nový kód pozrie na starú schému
+ENV AUTORUN_ENABLED=true
+ENV AUTORUN_LARAVEL_MIGRATION=true
+ENV AUTORUN_LARAVEL_MIGRATION_ISOLATION=true
+ENV AUTORUN_LARAVEL_STORAGE_LINK=false
+ENV AUTORUN_LARAVEL_CONFIG_CACHE=false
+ENV AUTORUN_LARAVEL_ROUTE_CACHE=false
+ENV AUTORUN_LARAVEL_VIEW_CACHE=false
+ENV AUTORUN_LARAVEL_EVENT_CACHE=false
 ENV SSL_MODE=off
 USER root
 RUN install-php-extensions gd exif

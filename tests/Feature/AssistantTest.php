@@ -198,6 +198,80 @@ class AssistantTest extends TestCase
         $this->assertLessThan(20, $chat->messages()->count());
     }
 
+    public function test_a_dangling_tool_call_does_not_break_the_chat_forever(): void
+    {
+        $chat = $this->user->chats()->create();
+        $chat->messages()->create(['role' => 'user', 'content' => 'Koľko mám?']);
+        // kolo sa prerušilo po uložení volania, ale pred uložením výsledku
+        $chat->messages()->create([
+            'role' => 'assistant',
+            'content' => null,
+            'tool_calls' => [['id' => 'call_stratene', 'type' => 'function',
+                'function' => ['name' => 'financial_overview', 'arguments' => '{}']]],
+        ]);
+
+        Http::fake(['*' => Http::response($this->reply('Máš 1 000 €.'))]);
+
+        $answer = app(Assistant::class)->ask($chat, 'Tak čo teda?');
+
+        $this->assertSame('Máš 1 000 €.', $answer->content);
+
+        // rozbité volanie sa modelu neposlalo
+        $sent = collect(Http::recorded()->last()[0]->data()['messages']);
+        $this->assertTrue($sent->every(fn ($m) => ! isset($m['tool_calls'])));
+    }
+
+    public function test_an_orphaned_tool_result_is_left_out(): void
+    {
+        $chat = $this->user->chats()->create();
+        // volanie vypadlo z okna histórie, výsledok ostal visieť
+        $chat->messages()->create([
+            'role' => 'tool', 'name' => 'financial_overview',
+            'tool_call_id' => 'call_bez_volania', 'content' => '{"zostatok":1000}',
+        ]);
+        $chat->messages()->create(['role' => 'user', 'content' => 'Koľko mám?']);
+
+        Http::fake(['*' => Http::response($this->reply('Máš 1 000 €.'))]);
+
+        app(Assistant::class)->ask($chat, 'Koľko mám?');
+
+        $sent = collect(Http::recorded()->last()[0]->data()['messages']);
+        $this->assertTrue($sent->every(fn ($m) => $m['role'] !== 'tool'));
+    }
+
+    public function test_a_tool_call_and_its_result_are_saved_together_or_not_at_all(): void
+    {
+        Http::fakeSequence()
+            ->push($this->toolCall('spending_summary', ['from' => '2026-07-01', 'to' => '2026-07-31']))
+            ->push($this->reply('Hotovo.'));
+
+        $chat = $this->user->chats()->create();
+        app(Assistant::class)->ask($chat, 'Koľko som minul?');
+
+        // za každým volaním nástroja musí nasledovať jeho výsledok
+        $calls = $chat->messages()->whereNotNull('tool_calls')->get()
+            ->flatMap(fn ($m) => collect($m->tool_calls)->pluck('id'))->all();
+        $answered = $chat->messages()->where('role', 'tool')->pluck('tool_call_id')->all();
+
+        $this->assertSame($calls, $answered);
+    }
+
+    public function test_every_request_offers_the_tools_and_forbids_asking_permission(): void
+    {
+        Http::fake(['*' => Http::response($this->reply('Jasné.'))]);
+
+        app(Assistant::class)->ask($this->user->chats()->create(), 'Čo povieš na 200 € do BTC?');
+
+        $sent = Http::recorded()->last()[0]->data();
+
+        $names = collect($sent['tools'])->pluck('function.name');
+        $this->assertContains('investment_portfolio', $names);
+        $this->assertContains('financial_overview', $names);
+
+        // bez tohto sa model pýta „chceš, aby som sa pozrel?" namiesto toho, aby sa pozrel
+        $this->assertStringContainsString('nepýtaj na dovolenie', $sent['messages'][0]['content']);
+    }
+
     public function test_a_missing_api_key_is_reported_clearly(): void
     {
         config(['services.openai.key' => null]);
