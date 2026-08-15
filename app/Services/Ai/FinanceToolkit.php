@@ -43,7 +43,7 @@ class FinanceToolkit
         ];
 
         return [
-            $this->tool('spending_summary', 'Príjmy, výdavky, čistý tok a miera úspor za obdobie, plus najväčšie výdavkové kategórie. Použi na otázky typu „koľko som minul".', [
+            $this->tool('spending_summary', 'Príjmy, výdavky, čistý tok a miera úspor za obdobie, plus najväčšie výdavkové kategórie. Použi na otázky typu „koľko som minul". Peniaze poslané do portfólia sú spotrebou len naoko, takže v `vydavky` ani v kategóriách nie sú — sú zvlášť v `poslane_do_investicii`.', [
                 'type' => 'object',
                 'properties' => $period,
                 'required' => ['from', 'to'],
@@ -58,7 +58,7 @@ class FinanceToolkit
                 ],
                 'required' => ['a_from', 'a_to', 'b_from', 'b_to'],
             ]),
-            $this->tool('list_transactions', 'Konkrétne transakcie za obdobie. Použi, keď treba odpoveď podložiť konkrétnymi položkami — napríklad po tom, čo compare_periods ukáže, ktorá kategória narástla.', [
+            $this->tool('list_transactions', 'Konkrétne transakcie za obdobie, vrátane presunov do portfólia. Použi, keď treba odpoveď podložiť konkrétnymi položkami — napríklad po tom, čo compare_periods ukáže, ktorá kategória narástla, alebo keď sa pýta na investície.', [
                 'type' => 'object',
                 'properties' => $period + [
                     'category_name' => ['type' => 'string', 'description' => 'Voliteľné: názov kategórie alebo jej časť.'],
@@ -119,6 +119,10 @@ class FinanceToolkit
             'vydavky' => round($expense, 2),
             'cisty_tok' => round($income - $expense, 2),
             'miera_uspor_pct' => $income > 0 ? round(($income - $expense) / $income * 100, 1) : null,
+            // presuny do portfólia nie sú spotreba, takže vo `vydavky` ani v
+            // kategóriách nie sú — bez tohto poľa by na otázku „koľko som dal
+            // do investícií" vyšlo, že nič
+            'poslane_do_investicii' => round($this->savingsFlow($user, $from, $to), 2),
             'pocet_transakcii' => $rows->count(),
             'najvacsie_kategorie' => $this->byCategory($user, $rows)->take(8)->values()->all(),
         ];
@@ -167,7 +171,10 @@ class FinanceToolkit
         [$from, $to] = $this->range($args['from'] ?? null, $args['to'] ?? null);
         $limit = min(50, max(1, (int) ($args['limit'] ?? 20)));
 
-        $q = $this->classifier->excludeSavings($user->transactions()->analyzed(), $user)
+        // sporenie sa tu nefiltruje: toto je nástroj na „ukáž mi konkrétne
+        // položky" a používateľ sa pýta na to, čo vidí v aplikácii. Filter
+        // patrí len tam, kde ide o spotrebu — teda do súčtov výdavkov.
+        $q = $user->transactions()->analyzed()
             ->with('category:id,name')
             ->whereDate('date', '>=', $from)->whereDate('date', '<=', $to);
 
@@ -295,6 +302,21 @@ class FinanceToolkit
     }
 
     // ── Pomocné ─────────────────────────────────────────────────────────
+
+    /** Výdavky v kategóriách sporenia — peniaze poslané do portfólia. */
+    protected function savingsFlow(User $user, string $from, string $to): float
+    {
+        $ids = $this->classifier->savingsCategoryIds($user);
+        if (! $ids) {
+            return 0.0;
+        }
+
+        return (float) $user->transactions()->analyzed()
+            ->where('type', 'expense')
+            ->whereIn('category_id', $ids)
+            ->whereDate('date', '>=', $from)->whereDate('date', '<=', $to)
+            ->sum(Transaction::netExpression());
+    }
 
     protected function expenses(User $user, string $from, string $to)
     {

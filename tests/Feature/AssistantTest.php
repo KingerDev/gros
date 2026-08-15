@@ -126,6 +126,34 @@ class AssistantTest extends TestCase
         $this->assertCount(2, $byAmount['transakcie']);
     }
 
+    /**
+     * Presuny do portfólia sa z výdavkov vypúšťajú, aby nekazili mieru úspor.
+     * Asistent ich napriek tomu musí vedieť ukázať — inak na otázku „koľko som
+     * dal tento mesiac do investícií" odpovie, že žiadne také výdavky nemá.
+     */
+    public function test_money_sent_to_the_portfolio_stays_visible(): void
+    {
+        $investments = Category::create([
+            'user_id' => $this->user->id, 'name' => 'Investície', 'type' => 'expense',
+            'is_savings' => true, 'color' => '#4c8dff', 'icon' => '📈', 'position' => 1,
+        ]);
+        $this->spend($investments, 100, '2026-07-04', 'Investície');
+        $this->spend($investments, 100, '2026-07-14', 'Do BTC');
+        $this->spend($this->category('Nákupy'), 50, '2026-07-06');
+
+        $toolkit = app(FinanceToolkit::class);
+
+        $summary = $toolkit->call($this->user, 'spending_summary', ['from' => '2026-07-01', 'to' => '2026-07-31']);
+        $this->assertSame(50.0, $summary['vydavky']);
+        $this->assertSame(200.0, $summary['poslane_do_investicii']);
+
+        $list = $toolkit->call($this->user, 'list_transactions', [
+            'from' => '2026-07-01', 'to' => '2026-07-31', 'category_name' => 'Investície',
+        ]);
+        $this->assertCount(2, $list['transakcie']);
+        $this->assertSame('Investície', $list['transakcie'][0]['kategoria']);
+    }
+
     public function test_tools_never_reach_another_users_data(): void
     {
         $stranger = User::factory()->create();
