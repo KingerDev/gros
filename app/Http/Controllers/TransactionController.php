@@ -6,6 +6,7 @@ use App\Models\Account;
 use App\Models\Transaction;
 use App\Services\AnalyticsService;
 use App\Services\CategorySuggester;
+use App\Services\ExpenseClassifier;
 use App\Services\RefundService;
 use App\Support\Period;
 use Illuminate\Http\JsonResponse;
@@ -19,7 +20,7 @@ use Inertia\Response;
 
 class TransactionController extends Controller
 {
-    public function index(Request $request, AnalyticsService $analytics): Response
+    public function index(Request $request, AnalyticsService $analytics, ExpenseClassifier $classifier): Response
     {
         $user = $request->user();
         $period = Period::fromRequest($request);
@@ -39,6 +40,8 @@ class TransactionController extends Controller
             'dataRange' => $analytics->dataRange($user),
             'transactions' => $transactions,
             'accounts' => $user->accounts()->orderBy('name')->get(['id', 'name']),
+            // presuny do portfólia sa v súčte výdavkov ukazujú zvlášť — nie sú minuté
+            'savingsCategoryIds' => $classifier->savingsCategoryIds($user),
         ]);
     }
 

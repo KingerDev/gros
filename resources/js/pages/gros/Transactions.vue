@@ -48,6 +48,7 @@ const props = defineProps<{
     accounts: { id: number; name: string }[];
     period: { key: string; ref: string | null; from: string | null; to: string | null; label: string };
     dataRange: { min: string | null; max: string | null };
+    savingsCategoryIds: number[];
 }>();
 
 const { eur, primary, categoryById, catName, catColor, catGlyph, hexToRgba, formatDate } = useGros();
@@ -170,9 +171,26 @@ function net(t: Txn): number {
 // Súčty ignorujú vylúčené transakcie aj vrátenia — rovnako ako analýzy a rozpočty
 const counted = computed(() => filtered.value.filter((t) => !t.excluded_from_analytics && !t.refund_for_id));
 const inSum = computed(() => counted.value.filter((t) => t.type === 'income').reduce((s, t) => s + Number(t.amount), 0));
-const outSum = computed(() => counted.value.filter((t) => t.type === 'expense').reduce((s, t) => s + net(t), 0));
+
+/** Kategórie, ktoré sú v skutočnosti presun do portfólia (server ich berie z rovnakého miesta ako analýzy). */
+const savingsIds = computed(() => new Set(props.savingsCategoryIds));
+const isSavings = (t: Txn) => t.category_id !== null && savingsIds.value.has(t.category_id);
+
+const expenses = computed(() => counted.value.filter((t) => t.type === 'expense'));
+// Investície nie sú minuté peniaze — v súčte stoja vedľa výdavkov, nie v nich
+const investedSum = computed(() => expenses.value.filter(isSavings).reduce((s, t) => s + net(t), 0));
+const outSum = computed(() => expenses.value.filter((t) => !isSavings(t)).reduce((s, t) => s + net(t), 0));
 const excludedCount = computed(() => filtered.value.filter((t) => t.excluded_from_analytics).length);
+
 const refundedSum = computed(() => counted.value.reduce((s, t) => s + Number(t.refunded_amount ?? 0), 0));
+
+/** Vysvetlivka pri súčte výdavkov — čo všetko v ňom nie je. */
+const expenseTitle = computed(() => {
+    const parts: string[] = [];
+    if (refundedSum.value) parts.push('po odrátaní vrátení');
+    if (investedSum.value) parts.push('bez investícií');
+    return parts.length ? 'Výdavky ' + parts.join(', ') : undefined;
+});
 
 const excludeTxn = ref<Txn | null>(null);
 
@@ -407,9 +425,10 @@ function exportCsv() {
                 </div>
                 <div style="display: flex; align-items: center; gap: 16px">
                     <span style="font-size: 13px; font-weight: 700; color: #2ba35a">+ {{ eur(inSum) }}</span>
-                    <span style="font-size: 13px; font-weight: 700; color: #e8544e" :title="refundedSum ? 'Po odrátaní vrátení' : undefined"
-                        >− {{ eur(outSum) }}</span
+                    <span v-if="investedSum" style="font-size: 13px; font-weight: 700; color: #5b6ee1" title="Do portfólia — nie je to minuté"
+                        >↗ {{ eur(investedSum) }}</span
                     >
+                    <span style="font-size: 13px; font-weight: 700; color: #e8544e" :title="expenseTitle">− {{ eur(outSum) }}</span>
                 </div>
             </div>
 
