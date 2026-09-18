@@ -2,7 +2,6 @@
 
 namespace App\Services;
 
-use App\Models\Transaction;
 use App\Models\User;
 use Carbon\CarbonImmutable;
 
@@ -39,16 +38,21 @@ class SpendingPlanService
         $disposable = $income - $fixed - $savings;
 
         // Už minuté tento mesiac (len výdavky, bez prevodov, po odrátaní vrátení)
-        $spent = (float) $this->classifier->excludeSavings($user->transactions()->analyzed(), $user)
+        $rows = $this->classifier->excludeSavings($user->transactions()->analyzed(), $user)
             ->where('type', 'expense')
             ->whereDate('date', '>=', $monthStart->toDateString())->whereDate('date', '<=', $monthEnd->toDateString())
-            ->sum(Transaction::netExpression());
+            ->get(['event_id', 'amount', 'refunded_amount']);
+        $spent = (float) $rows->sum('net_amount');
+        $eventSpent = (float) $rows->whereNotNull('event_id')->sum('net_amount');
 
         $safeToSpend = $disposable - $spent;
         $dailyLimit = max(0, $safeToSpend) / $daysLeft;
 
-        // Projekcia podľa tempa (koľko minie do konca mesiaca pri tomto tempe)
-        $projectedSpend = $dayOfMonth > 0 ? $spent / $dayOfMonth * $daysInMonth : 0;
+        // Projekcia podľa tempa (koľko minie do konca mesiaca pri tomto tempe).
+        // Udalosť (dovolenka) sa ráta raz — inak by týždeň v Dubline tvrdil,
+        // že takto sa bude míňať celý mesiac.
+        $routineSpent = $spent - $eventSpent;
+        $projectedSpend = $eventSpent + ($dayOfMonth > 0 ? $routineSpent / $dayOfMonth * $daysInMonth : 0);
         $projectedLeftover = $disposable - $projectedSpend;
 
         return [
@@ -59,6 +63,7 @@ class SpendingPlanService
             'savings' => round($savings, 2),
             'disposable' => round($disposable, 2),
             'spent' => round($spent, 2),
+            'eventSpent' => round($eventSpent, 2),
             'safeToSpend' => round($safeToSpend, 2),
             'dailyLimit' => round($dailyLimit, 2),
             'projectedSpend' => round($projectedSpend, 2),

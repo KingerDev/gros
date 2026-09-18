@@ -6,6 +6,7 @@ use App\Http\Controllers\AssistantController;
 use App\Http\Controllers\BudgetController;
 use App\Http\Controllers\CategoryController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\EventController;
 use App\Http\Controllers\GoalController;
 use App\Http\Controllers\InvestmentController;
 use App\Http\Controllers\LoanController;
@@ -38,6 +39,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('transactions', [TransactionController::class, 'index'])->name('transactions.index');
     Route::post('transactions', [TransactionController::class, 'store'])->name('transactions.store');
     Route::get('transactions/suggest-category', [TransactionController::class, 'suggestCategory'])->name('transactions.suggest-category');
+    Route::patch('transactions/event', [TransactionController::class, 'bulkEvent'])->name('transactions.event');
     Route::put('transactions/{transaction}', [TransactionController::class, 'update'])->name('transactions.update');
     Route::patch('transactions/{transaction}/exclusion', [TransactionController::class, 'exclusion'])->name('transactions.exclusion');
     Route::post('transactions/{transaction}/refunds', [TransactionController::class, 'storeRefund'])->name('transactions.refunds.store');
@@ -93,6 +95,15 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('goals', [GoalController::class, 'store'])->name('goals.store');
     Route::put('goals/{goal}', [GoalController::class, 'update'])->name('goals.update');
     Route::delete('goals/{goal}', [GoalController::class, 'destroy'])->name('goals.destroy');
+
+    // Udalosti (dovolenka, svadba…) — skupina výdavkov naprieč kategóriami
+    Route::get('events', [EventController::class, 'index'])->name('events.index');
+    Route::post('events', [EventController::class, 'store'])->name('events.store');
+    Route::get('events/{event}', [EventController::class, 'show'])->name('events.show');
+    Route::put('events/{event}', [EventController::class, 'update'])->name('events.update');
+    Route::delete('events/{event}', [EventController::class, 'destroy'])->name('events.destroy');
+    Route::get('events/{event}/candidates', [EventController::class, 'candidates'])->name('events.candidates');
+    Route::put('events/{event}/transactions', [EventController::class, 'sync'])->name('events.sync');
 
     // Rozpočty
     Route::get('budgets', [BudgetController::class, 'index'])->name('budgets.index');

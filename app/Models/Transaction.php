@@ -19,7 +19,7 @@ class Transaction extends Model
     public const NET_AMOUNT = '(transactions.amount - transactions.refunded_amount)';
 
     protected $fillable = [
-        'user_id', 'account_id', 'to_account_id', 'category_id', 'type', 'amount', 'date', 'note',
+        'user_id', 'account_id', 'to_account_id', 'category_id', 'event_id', 'type', 'amount', 'date', 'note',
         'excluded_from_analytics', 'exclusion_reason', 'source', 'source_id', 'refund_for_id',
     ];
 
@@ -41,6 +41,17 @@ class Transaction extends Model
     public function scopeAnalyzed(Builder $query): Builder
     {
         return $query->where('excluded_from_analytics', false)->whereNull('refund_for_id');
+    }
+
+    /**
+     * Len bežné míňanie — bez výdavkov z udalostí (dovolenka, svadba…).
+     * Patrí všade, kde sa z minulosti odhaduje, koľko človek zvyčajne míňa:
+     * rozpočty kategórií, priemery, anomálie. Súčty „koľko som minul" ho
+     * nepoužívajú — tam udalosti patria.
+     */
+    public function scopeRoutine(Builder $query): Builder
+    {
+        return $query->whereNull('transactions.event_id');
     }
 
     /**
@@ -98,6 +109,11 @@ class Transaction extends Model
     public function category(): BelongsTo
     {
         return $this->belongsTo(Category::class);
+    }
+
+    public function event(): BelongsTo
+    {
+        return $this->belongsTo(Event::class);
     }
 
     /** Pôvodný výdavok, ku ktorému je toto vrátenie spárované. */

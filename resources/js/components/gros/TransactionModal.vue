@@ -13,6 +13,7 @@ interface TxnEdit {
     id: number;
     type: string;
     category_id: number | null;
+    event_id?: number | null;
     account_id: number;
     to_account_id: number | null;
     amount: number | string;
@@ -30,7 +31,7 @@ const props = defineProps<{
 }>();
 const emit = defineEmits<{ close: [] }>();
 
-const { primary, primarySoft, categoryById, catName, catColor, catGlyph, hexToRgba } = useGros();
+const { primary, primarySoft, categoryById, catName, catColor, catGlyph, hexToRgba, events, eventById, eventOn } = useGros();
 
 const editing = computed(() => !!props.transaction);
 // Spárované vrátenie: typ ani kategória sa meniť nedajú — patrí k svojmu nákupu
@@ -42,6 +43,7 @@ const otherAccount = props.accounts.find((a) => a.id !== defaultAccount)?.id ?? 
 const form = useForm<{
     type: 'income' | 'expense' | 'transfer';
     category_id: number | null;
+    event_id: number | null;
     account_id: number | null;
     to_account_id: number | null;
     amount: string;
@@ -52,6 +54,7 @@ const form = useForm<{
 }>({
     type: (props.transaction?.type as 'income' | 'expense' | 'transfer') ?? 'expense',
     category_id: props.transaction?.category_id ?? null,
+    event_id: props.transaction?.event_id ?? null,
     account_id: defaultAccount,
     to_account_id: props.transaction?.to_account_id ?? otherAccount,
     amount: props.transaction ? String(props.transaction.amount).replace('.', ',') : '',
@@ -118,6 +121,17 @@ function toggleExcluded() {
 
 const isTransfer = computed(() => form.type === 'transfer');
 
+// ── Udalosť (dovolenka…) ────────────────────────────────────────────────
+// Len pri výdavku — príjmy, prevody ani vrátenia do udalosti nepatria.
+const canHaveEvent = computed(() => form.type === 'expense' && !isRefund.value);
+
+/** Dátum padá do udalosti, ku ktorej výdavok ešte nie je priradený — ponúkne sa. */
+const suggestedEvent = computed(() => {
+    if (!canHaveEvent.value || form.event_id) return null;
+    return eventOn(form.date) ?? null;
+});
+const selectedEvent = computed(() => eventById(form.event_id));
+
 // Zúženie typu tu, nie v šablóne — zvislítko v type union tam eslint číta
 // ako zastaraný Vue filter.
 const categoryType = computed(() => (form.type === 'income' ? 'income' : 'expense'));
@@ -125,6 +139,7 @@ const categoryType = computed(() => (form.type === 'income' ? 'income' : 'expens
 watch(
     () => form.type,
     (t) => {
+        if (t !== 'expense') form.event_id = null;
         if (t === 'transfer') {
             if (!form.to_account_id || form.to_account_id === form.account_id) {
                 form.to_account_id = props.accounts.find((a) => a.id !== form.account_id)?.id ?? null;
@@ -186,7 +201,7 @@ function submit(andAnother = false) {
             preserveState: andAnother ? true : undefined,
             onSuccess: () => {
                 if (andAnother && !editing.value) {
-                    // ponechá typ, kategóriu, účet aj dátum — vyčistí len sumu, poznámku a vylúčenie
+                    // ponechá typ, kategóriu, účet, dátum aj udalosť — vyčistí len sumu, poznámku a vylúčenie
                     form.amount = '';
                     form.note = '';
                     form.excluded_from_analytics = false;
@@ -363,6 +378,39 @@ function destroy() {
                 >
                 Zaradiť do „{{ catName(suggestedCat) }}"
             </button>
+        </div>
+
+        <!-- Udalosť (dovolenka…) — druhá os popri kategórii -->
+        <div v-if="canHaveEvent && (events.length || form.event_id)" style="margin-bottom: 18px">
+            <label class="gros-label">Udalosť (voliteľné)</label>
+            <select v-model="form.event_id" class="gros-select">
+                <option :value="null">— žiadna, bežný výdavok —</option>
+                <option v-for="e in events" :key="e.id" :value="e.id">{{ (e.icon ? e.icon + ' ' : '') + e.name }}</option>
+            </select>
+            <button
+                v-if="suggestedEvent"
+                type="button"
+                style="
+                    display: flex;
+                    align-items: center;
+                    gap: 7px;
+                    margin-top: 8px;
+                    padding: 7px 11px;
+                    border-radius: 11px;
+                    font-size: 12.5px;
+                    font-weight: 700;
+                "
+                :style="{ background: hexToRgba(suggestedEvent.color, 0.12), color: suggestedEvent.color }"
+                @click="form.event_id = suggestedEvent.id"
+            >
+                {{ suggestedEvent.icon ?? '✈️' }} Počas „{{ suggestedEvent.name }}" — priradiť?
+            </button>
+            <div v-else-if="selectedEvent" style="font-size: 11.5px; color: #9a9cab; font-weight: 600; margin-top: 6px; line-height: 1.45">
+                Ráta sa ako jednorazový výdavok — do priemerov a rozpočtu kategórie nevstúpi.
+            </div>
+            <div v-if="form.errors.event_id" style="color: #e8544e; font-size: 12px; font-weight: 600; margin-top: 6px">
+                {{ form.errors.event_id }}
+            </div>
         </div>
 
         <!-- Vylúčenie z analýzy (len príjem/výdavok — prevody a vrátenia sa do analýz nerátajú) -->

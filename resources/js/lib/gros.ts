@@ -28,6 +28,16 @@ export interface Category {
     icon: string | null;
 }
 
+/** Udalosť (dovolenka, svadba…) — skupina výdavkov naprieč kategóriami. */
+export interface GrosEvent {
+    id: number;
+    name: string;
+    starts_on: string;
+    ends_on: string;
+    color: string;
+    icon: string | null;
+}
+
 export interface CategoryNode extends Category {
     children: Category[];
 }
@@ -60,6 +70,16 @@ export function gradient(hex: string): string {
 /** Mäkký tieň farby. */
 export function soft(hex: string): string {
     return hexToRgba(hex, 0.34);
+}
+
+/** „10. – 17. 9. 2026" — rozsah dátumov udalosti, bez opakovania mesiaca a roka. */
+export function formatRange(from: string, to: string): string {
+    const [fy, fm, fd] = from.slice(0, 10).split('-').map(Number);
+    const [ty, tm, td] = to.slice(0, 10).split('-').map(Number);
+    if (from.slice(0, 10) === to.slice(0, 10)) return `${fd}. ${fm}. ${fy}`;
+    if (fy === ty && fm === tm) return `${fd}. – ${td}. ${tm}. ${ty}`;
+    if (fy === ty) return `${fd}. ${fm}. – ${td}. ${tm}. ${ty}`;
+    return `${fd}. ${fm}. ${fy} – ${td}. ${tm}. ${ty}`;
 }
 
 /** DD.MM.YYYY z ISO reťazca alebo Date. */

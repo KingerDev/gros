@@ -3,10 +3,12 @@ import { computed } from 'vue';
 
 // Skupinový stĺpcový graf (napr. príjmy/výdavky po mesiacoch).
 // Každá položka má label a N stĺpcov {value, color|gradient, title}.
+// Voliteľná `part` je spodná časť stĺpca inou farbou (napr. „z toho udalosti").
 interface Bar {
     value: number;
     color: string;
     title?: string;
+    part?: { value: number; color: string };
 }
 
 const props = withDefaults(
@@ -50,8 +52,22 @@ const max = computed(() => Math.max(1, ...props.items.flatMap((i) => i.bars.map(
                         background: bar.color,
                         borderRadius: '4px 4px 0 0',
                         transition: 'height .5s ease',
+                        position: 'relative',
+                        overflow: 'hidden',
                     }"
-                ></div>
+                >
+                    <div
+                        v-if="bar.part && bar.part.value > 0 && bar.value > 0"
+                        :style="{
+                            position: 'absolute',
+                            left: 0,
+                            right: 0,
+                            bottom: 0,
+                            height: Math.min(100, (bar.part.value / bar.value) * 100) + '%',
+                            background: bar.part.color,
+                        }"
+                    ></div>
+                </div>
             </div>
             <div
                 style="font-size: 11px; font-weight: 700; color: #9a9cab; white-space: nowrap"

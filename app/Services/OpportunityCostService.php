@@ -95,8 +95,9 @@ class OpportunityCostService
             return [];
         }
 
-        // investovanie nie je náklad — je to práve to, s čím sa tu porovnáva
-        $rows = $this->classifier->excludeSavings($user->transactions()->analyzed(), $user)
+        // investovanie nie je náklad — je to práve to, s čím sa tu porovnáva;
+        // udalosti (dovolenka…) nie sú zvyk, ktorý by sa ťahal až do dôchodku
+        $rows = $this->classifier->excludeSavings($user->transactions()->analyzed()->routine(), $user)
             ->where('type', 'expense')
             ->whereNotNull('category_id')
             ->whereDate('date', '>=', $from->toDateString())->whereDate('date', '<=', $to->toDateString())

@@ -1,7 +1,11 @@
 <script setup lang="ts">
+import { useGros } from '@/composables/useGros';
+import { Link } from '@inertiajs/vue3';
 import { computed } from 'vue';
 
 const props = defineProps<{
+    /** Udalosť (dovolenka…), do ktorej výdavok patrí. */
+    eventId?: number | null;
     source?: string | null;
     excluded?: boolean;
     reason?: string | null;
@@ -13,6 +17,9 @@ const props = defineProps<{
     amount?: number;
 }>();
 
+const { eventById, hexToRgba } = useGros();
+const event = computed(() => eventById(props.eventId));
+
 const autoLabel = computed(() => (props.source === 'loan' ? 'Automatická splátka úveru' : 'Automatická platba predplatného'));
 
 const refundedLabel = computed(() =>
@@ -21,6 +28,16 @@ const refundedLabel = computed(() =>
 </script>
 
 <template>
+    <Link
+        v-if="event"
+        :href="`/events/${event.id}`"
+        style="font-size: 10.5px; font-weight: 800; padding: 3px 7px; border-radius: 7px; white-space: nowrap"
+        :style="{ background: hexToRgba(event.color, 0.14), color: event.color }"
+        title="Výdavok z udalosti — ráta sa ako jednorazový"
+        @click.stop
+    >
+        {{ event.icon ?? '✈️' }} {{ event.name }}
+    </Link>
     <span
         v-if="source"
         style="

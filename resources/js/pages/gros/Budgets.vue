@@ -111,6 +111,10 @@ function status(b: Budget) {
                 </div>
             </div>
 
+            <div style="font-size: 11.5px; font-weight: 600; color: #9a9cab; margin: 12px 4px 0; line-height: 1.5">
+                Výdavky z udalostí (dovolenka a pod.) rozpočty kategórií nečerpajú — udalosť má vlastný rozpočet.
+            </div>
+
             <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 22px 2px 12px">
                 <div class="font-display" style="font-weight: 700; font-size: 17px">Rozpočty podľa kategórie</div>
                 <button

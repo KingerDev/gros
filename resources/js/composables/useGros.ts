@@ -1,17 +1,19 @@
-import { usePage } from '@inertiajs/vue3';
-import { computed } from 'vue';
 import {
     formatDate,
+    formatRange,
     gradient,
     hexToRgba,
     shift,
     soft,
     type Category,
     type CategoryNode,
+    type GrosEvent,
     type GrosRef,
     type GrosSettings,
     type GrosSummary,
 } from '@/lib/gros';
+import { usePage } from '@inertiajs/vue3';
+import { computed } from 'vue';
 
 /**
  * Centrálny prístup k nastaveniam Groš, formátovaniu peňazí a kategóriám
@@ -20,12 +22,25 @@ import {
 export function useGros() {
     const page = usePage();
 
-    const settings = computed<GrosSettings>(() => (page.props.settings as GrosSettings) ?? { accent: '#6c5ce7', showDecimals: true, privacyMode: false });
+    const settings = computed<GrosSettings>(
+        () => (page.props.settings as GrosSettings) ?? { accent: '#6c5ce7', showDecimals: true, privacyMode: false },
+    );
     const ref = computed<GrosRef>(() => page.props.catalog as GrosRef);
     const summary = computed<GrosSummary | null>(() => (page.props.summary as GrosSummary) ?? null);
 
     const categories = computed<Category[]>(() => (page.props.categories as Category[]) ?? []);
     const recentCategoryIds = computed<number[]>(() => (page.props.recentCategoryIds as number[]) ?? []);
+    const events = computed<GrosEvent[]>(() => (page.props.events as GrosEvent[]) ?? []);
+
+    function eventById(id: number | null | undefined): GrosEvent | undefined {
+        return id == null ? undefined : events.value.find((e) => e.id === id);
+    }
+
+    /** Udalosť, do ktorej dátum padá (napr. ako návrh pri novej transakcii). */
+    function eventOn(date: string): GrosEvent | undefined {
+        const d = date.slice(0, 10);
+        return events.value.find((e) => e.starts_on <= d && d <= e.ends_on);
+    }
 
     const categoryMap = computed(() => {
         const m = new Map<number, Category>();
@@ -44,9 +59,7 @@ export function useGros() {
 
     /** Listy (priraditeľné na transakciu) daného typu, zoskupené pod svojou skupinou. */
     function leafGroups(type: 'income' | 'expense'): CategoryNode[] {
-        return categoryTree.value
-            .filter((g) => g.type === type)
-            .map((g) => ({ ...g, children: g.children.length ? g.children : [] }));
+        return categoryTree.value.filter((g) => g.type === type).map((g) => ({ ...g, children: g.children.length ? g.children : [] }));
     }
 
     const primary = computed(() => settings.value.accent || '#6c5ce7');
@@ -102,6 +115,9 @@ export function useGros() {
         summary,
         categories,
         recentCategoryIds,
+        events,
+        eventById,
+        eventOn,
         categoryMap,
         categoryTree,
         leafGroups,
@@ -119,6 +135,7 @@ export function useGros() {
         fmtUnits,
         kindLabel,
         formatDate,
+        formatRange,
         hexToRgba,
         gradient,
         shift,

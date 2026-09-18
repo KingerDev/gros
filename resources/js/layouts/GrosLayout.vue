@@ -12,6 +12,7 @@ import {
     LogOut,
     PieChart,
     PiggyBank,
+    Plane,
     Scale,
     Settings,
     ShieldCheck,
@@ -34,6 +35,7 @@ const nav = [
     { label: 'Analýzy', href: '/analytics', icon: ChartColumnBig },
     { label: 'Účty', href: '/accounts', icon: Wallet },
     { label: 'Transakcie', href: '/transactions', icon: ArrowRightLeft },
+    { label: 'Udalosti', href: '/events', icon: Plane },
     { label: 'Investície', href: '/investments', icon: TrendingUp },
     { label: 'Oplatí sa?', href: '/purchase', icon: Scale },
     { label: 'Rezerva', href: '/reserve', icon: ShieldCheck },
@@ -109,12 +111,34 @@ watch(
         <!-- Sidebar (desktop) -->
         <aside
             v-if="isDesktop"
-            style="width: 252px; flex-shrink: 0; background: #fff; border-right: 1px solid #eceae2; padding: 24px 16px; display: flex; flex-direction: column; gap: 5px; position: sticky; top: 0; height: 100vh"
+            style="
+                width: 252px;
+                flex-shrink: 0;
+                background: #fff;
+                border-right: 1px solid #eceae2;
+                padding: 24px 16px;
+                display: flex;
+                flex-direction: column;
+                gap: 5px;
+                position: sticky;
+                top: 0;
+                height: 100vh;
+            "
         >
             <div style="display: flex; align-items: center; gap: 11px; padding: 6px 8px 24px">
                 <div
                     class="font-display"
-                    style="width: 40px; height: 40px; border-radius: 13px; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 800; font-size: 22px"
+                    style="
+                        width: 40px;
+                        height: 40px;
+                        border-radius: 13px;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        color: #fff;
+                        font-weight: 800;
+                        font-size: 22px;
+                    "
                     :style="{ background: grad, boxShadow: `0 8px 18px ${primarySoft}` }"
                 >
                     G
@@ -135,7 +159,9 @@ watch(
                 :style="{ background: grad, boxShadow: `0 14px 30px ${primarySoft}` }"
             >
                 <div style="font-size: 12px; font-weight: 600; opacity: 0.85; letter-spacing: 0.2px">Čisté imanie</div>
-                <div class="font-display" style="font-weight: 800; font-size: 26px; letter-spacing: -0.8px; margin-top: 5px">{{ eurS(summary.netWorth) }}</div>
+                <div class="font-display" style="font-weight: 800; font-size: 26px; letter-spacing: -0.8px; margin-top: 5px">
+                    {{ eurS(summary.netWorth) }}
+                </div>
                 <div style="font-size: 12px; font-weight: 600; opacity: 0.85; margin-top: 6px; display: flex; align-items: center; gap: 5px">
                     <span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #c7f9cc"></span>
                     {{ summary.accountCount }} účty · investície
@@ -145,7 +171,19 @@ watch(
             <div style="display: flex; gap: 8px; margin-top: 10px">
                 <Link
                     href="/settings/preferences"
-                    style="flex: 1; display: flex; align-items: center; justify-content: center; gap: 7px; padding: 10px; border-radius: 12px; background: #f5f4ef; color: #61637a; font-size: 13px; font-weight: 700"
+                    style="
+                        flex: 1;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        gap: 7px;
+                        padding: 10px;
+                        border-radius: 12px;
+                        background: #f5f4ef;
+                        color: #61637a;
+                        font-size: 13px;
+                        font-weight: 700;
+                    "
                 >
                     <Settings :size="16" :stroke-width="2.2" /> Nastavenia
                 </Link>
@@ -153,7 +191,15 @@ watch(
                     href="/logout"
                     method="post"
                     as="button"
-                    style="display: flex; align-items: center; justify-content: center; padding: 10px 12px; border-radius: 12px; background: #f5f4ef; color: #61637a"
+                    style="
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        padding: 10px 12px;
+                        border-radius: 12px;
+                        background: #f5f4ef;
+                        color: #61637a;
+                    "
                     title="Odhlásiť sa"
                 >
                     <LogOut :size="16" :stroke-width="2.2" />
@@ -168,13 +214,25 @@ watch(
                     <div
                         v-if="!isDesktop"
                         class="font-display"
-                        style="width: 34px; height: 34px; border-radius: 11px; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 800; font-size: 19px"
+                        style="
+                            width: 34px;
+                            height: 34px;
+                            border-radius: 11px;
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                            color: #fff;
+                            font-weight: 800;
+                            font-size: 19px;
+                        "
                         :style="{ background: grad }"
                     >
                         G
                     </div>
                     <div v-if="isDesktop" style="min-width: 0">
-                        <div class="font-display" style="font-weight: 800; font-size: 27px; letter-spacing: -0.7px; line-height: 1.1">{{ title }}</div>
+                        <div class="font-display" style="font-weight: 800; font-size: 27px; letter-spacing: -0.7px; line-height: 1.1">
+                            {{ title }}
+                        </div>
                         <div v-if="subtitle" style="color: #9a9cab; font-size: 13px; font-weight: 500; margin-top: 2px">{{ subtitle }}</div>
                     </div>
                 </div>
@@ -182,7 +240,17 @@ watch(
                     <Link
                         v-if="!isDesktop"
                         href="/settings/preferences"
-                        style="width: 40px; height: 40px; border-radius: 12px; background: #fff; display: flex; align-items: center; justify-content: center; color: #61637a; box-shadow: 0 2px 8px rgba(60, 55, 40, 0.06)"
+                        style="
+                            width: 40px;
+                            height: 40px;
+                            border-radius: 12px;
+                            background: #fff;
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                            color: #61637a;
+                            box-shadow: 0 2px 8px rgba(60, 55, 40, 0.06);
+                        "
                     >
                         <Settings :size="18" :stroke-width="2.2" />
                     </Link>
@@ -191,7 +259,9 @@ watch(
             </header>
 
             <div style="padding: 14px 30px 40px; max-width: 1160px; width: 100%">
-                <div v-if="!isDesktop" class="font-display" style="font-weight: 800; font-size: 25px; letter-spacing: -0.6px; margin: 2px 0 16px">{{ title }}</div>
+                <div v-if="!isDesktop" class="font-display" style="font-weight: 800; font-size: 25px; letter-spacing: -0.6px; margin: 2px 0 16px">
+                    {{ title }}
+                </div>
                 <slot />
                 <div v-if="!isDesktop" style="height: 88px"></div>
             </div>
@@ -200,7 +270,22 @@ watch(
         <!-- Bottom nav (mobile) -->
         <nav
             v-if="!isDesktop"
-            style="position: fixed; bottom: 0; left: 0; right: 0; height: 74px; background: rgba(255, 255, 255, 0.94); backdrop-filter: blur(14px); border-top: 1px solid #eceae2; display: flex; align-items: stretch; justify-content: flex-start; padding: 6px 4px; z-index: 40; overflow-x: auto"
+            style="
+                position: fixed;
+                bottom: 0;
+                left: 0;
+                right: 0;
+                height: 74px;
+                background: rgba(255, 255, 255, 0.94);
+                backdrop-filter: blur(14px);
+                border-top: 1px solid #eceae2;
+                display: flex;
+                align-items: stretch;
+                justify-content: flex-start;
+                padding: 6px 4px;
+                z-index: 40;
+                overflow-x: auto;
+            "
         >
             <Link v-for="item in nav" :key="item.href" :href="item.href" :style="mNavStyle(item.href)">
                 <component :is="item.icon" :size="21" :stroke-width="2" />
@@ -212,7 +297,20 @@ watch(
         <Transition name="gros-toast">
             <div
                 v-if="toast"
-                style="position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: #20212e; color: #fff; font-weight: 600; font-size: 14px; padding: 12px 20px; border-radius: 14px; box-shadow: 0 12px 30px rgba(20, 18, 30, 0.3); z-index: 80"
+                style="
+                    position: fixed;
+                    bottom: 24px;
+                    left: 50%;
+                    transform: translateX(-50%);
+                    background: #20212e;
+                    color: #fff;
+                    font-weight: 600;
+                    font-size: 14px;
+                    padding: 12px 20px;
+                    border-radius: 14px;
+                    box-shadow: 0 12px 30px rgba(20, 18, 30, 0.3);
+                    z-index: 80;
+                "
             >
                 {{ toast }}
             </div>

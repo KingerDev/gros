@@ -6,6 +6,7 @@ use App\Models\Transaction;
 use App\Models\User;
 use App\Services\AnalyticsService;
 use App\Services\EmergencyFundService;
+use App\Services\EventService;
 use App\Services\ExpenseClassifier;
 use App\Services\FinanceService;
 use App\Services\FinancialProfileService;
@@ -28,6 +29,7 @@ class FinanceToolkit
         protected PortfolioAnalyticsService $portfolio,
         protected EmergencyFundService $reserve,
         protected ExpenseClassifier $classifier,
+        protected EventService $events,
     ) {}
 
     /**
@@ -65,9 +67,16 @@ class FinanceToolkit
                     'search' => ['type' => 'string', 'description' => 'Voliteľné: hľadaný text v poznámke.'],
                     'min_amount' => ['type' => 'number', 'description' => 'Voliteľné: len transakcie od tejto sumy.'],
                     'type' => ['type' => 'string', 'enum' => ['income', 'expense'], 'description' => 'Voliteľné: typ transakcie.'],
+                    'event_name' => ['type' => 'string', 'description' => 'Voliteľné: len výdavky z udalosti s týmto názvom (alebo jeho časťou), napr. „Dublin".'],
                     'limit' => ['type' => 'integer', 'description' => 'Koľko najväčších vrátiť, max 50. Predvolene 20.'],
                 ],
                 'required' => ['from', 'to'],
+            ]),
+            $this->tool('events', 'Udalosti ako dovolenka, svadba či sťahovanie — skupiny výdavkov naprieč kategóriami, ktoré si používateľ označil. Bez parametra vráti zoznam všetkých udalostí so súčtami. S `name` vráti detail jednej: rozklad podľa kategórií, po dňoch a najväčšie položky. Použi na otázky typu „koľko ma stála dovolenka" alebo „koľko míňam na cestovanie".', [
+                'type' => 'object',
+                'properties' => [
+                    'name' => ['type' => 'string', 'description' => 'Voliteľné: názov udalosti alebo jeho časť, napr. „Dublin".'],
+                ],
             ]),
             $this->tool('monthly_trend', 'Príjmy, výdavky a čistý tok po mesiacoch za posledných N mesiacov. Na otázky o vývoji a trendoch.', [
                 'type' => 'object',
@@ -95,6 +104,7 @@ class FinanceToolkit
             'compare_periods' => $this->comparePeriods($user, $args),
             'list_transactions' => $this->listTransactions($user, $args),
             'monthly_trend' => $this->monthlyTrend($user, $args),
+            'events' => $this->eventsTool($user, $args),
             'financial_overview' => $this->financialOverview($user),
             'investment_portfolio' => $this->investmentPortfolio($user),
             'recurring_costs' => $this->recurringCosts($user),
@@ -123,6 +133,10 @@ class FinanceToolkit
             // kategóriách nie sú — bez tohto poľa by na otázku „koľko som dal
             // do investícií" vyšlo, že nič
             'poslane_do_investicii' => round($this->savingsFlow($user, $from, $to), 2),
+            // udalosti (dovolenka…) sú vo `vydavky` — tu je, koľko z nich bolo jednorazových
+            'z_toho_udalosti' => $rows->whereNotNull('event_id')->groupBy('event_id')
+                ->map(fn ($g) => ['udalost' => $g->first()->event?->name, 'suma' => round($g->sum(fn ($t) => (float) $t->net_amount), 2)])
+                ->values()->all(),
             'pocet_transakcii' => $rows->count(),
             'najvacsie_kategorie' => $this->byCategory($user, $rows)->take(8)->values()->all(),
         ];
@@ -175,7 +189,7 @@ class FinanceToolkit
         // položky" a používateľ sa pýta na to, čo vidí v aplikácii. Filter
         // patrí len tam, kde ide o spotrebu — teda do súčtov výdavkov.
         $q = $user->transactions()->analyzed()
-            ->with('category:id,name')
+            ->with(['category:id,name', 'event:id,name'])
             ->whereDate('date', '>=', $from)->whereDate('date', '<=', $to);
 
         if (! empty($args['type'])) {
@@ -194,6 +208,9 @@ class FinanceToolkit
             $childIds = $user->categories()->whereIn('parent_id', $ids)->pluck('id');
             $q->whereIn('category_id', $ids->merge($childIds));
         }
+        if (! empty($args['event_name'])) {
+            $q->whereIn('event_id', $user->events()->where('name', 'like', '%'.$args['event_name'].'%')->pluck('id'));
+        }
 
         return [
             'obdobie' => "$from – $to",
@@ -204,6 +221,7 @@ class FinanceToolkit
                     'typ' => $t->type,
                     'kategoria' => $t->category?->name,
                     'poznamka' => $t->note,
+                    'udalost' => $t->event?->name,
                 ])->all(),
         ];
     }
@@ -218,8 +236,61 @@ class FinanceToolkit
                     'mesiac' => $m['ym'],
                     'prijem' => round($m['income'], 2),
                     'vydavky' => round($m['expense'], 2),
+                    'z_toho_udalosti' => round($m['events'], 2),
                     'cisty_tok' => round($m['net'], 2),
                 ])->all(),
+        ];
+    }
+
+    protected function eventsTool(User $user, array $args): array
+    {
+        if (empty($args['name'])) {
+            return [
+                'udalosti' => $this->events->overview($user)->map(fn ($e) => [
+                    'nazov' => $e['name'],
+                    'od' => $e['starts_on'],
+                    'do' => $e['ends_on'],
+                    'dni' => $e['days'],
+                    'spolu' => $e['total'],
+                    'na_den' => $e['per_day'],
+                    'rozpocet' => $e['budget'],
+                    'pocet_transakcii' => $e['count'],
+                ])->all(),
+            ];
+        }
+
+        $event = $user->events()->where('name', 'like', '%'.$args['name'].'%')->orderByDesc('starts_on')->first();
+        if (! $event) {
+            return ['poznamka' => "Udalosť „{$args['name']}\" neexistuje.", 'existujuce' => $user->events()->pluck('name')->all()];
+        }
+
+        $d = $this->events->detail($event);
+        $names = $user->categories()->pluck('name', 'id');
+
+        return [
+            'nazov' => $event->name,
+            'od' => $d['event']['starts_on'],
+            'do' => $d['event']['ends_on'],
+            'dni' => $d['event']['days'],
+            'spolu' => $d['total'],
+            'na_den' => $d['per_day'],
+            'rozpocet' => $d['event']['budget'],
+            'vratene' => $d['refunded'],
+            'podla_kategorie' => collect($d['byCategory'])->map(fn ($c) => [
+                'kategoria' => $names[$c['category_id']] ?? 'Bez kategórie',
+                'suma' => $c['amount'],
+                'pocet' => $c['count'],
+            ])->all(),
+            'po_dnoch' => collect($d['byDay'])->map(fn ($x) => ['den' => $x['date'] ?? $x['label'], 'suma' => $x['amount']])->all(),
+            'najvacsie_polozky' => $d['transactions']
+                ->filter(fn ($t) => $t->type === 'expense' && ! $t->excluded_from_analytics)
+                ->sortByDesc('net_amount')->take(15)
+                ->map(fn ($t) => [
+                    'datum' => $t->date->toDateString(),
+                    'suma' => round((float) $t->net_amount, 2),
+                    'kategoria' => $names[$t->category_id] ?? null,
+                    'poznamka' => $t->note,
+                ])->values()->all(),
         ];
     }
 
@@ -321,7 +392,7 @@ class FinanceToolkit
     protected function expenses(User $user, string $from, string $to)
     {
         return $this->classifier->excludeSavings($user->transactions()->analyzed(), $user)
-            ->with('category:id,name,parent_id')
+            ->with(['category:id,name,parent_id', 'event:id,name'])
             ->where('type', 'expense')
             ->whereDate('date', '>=', $from)->whereDate('date', '<=', $to)
             ->get();

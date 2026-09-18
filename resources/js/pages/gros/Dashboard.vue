@@ -87,6 +87,8 @@ interface Plan {
     savings: number;
     disposable: number;
     spent: number;
+    /** Z `spent` výdavky z udalostí — do tempa sa rátajú len raz. */
+    eventSpent: number;
     safeToSpend: number;
     dailyLimit: number;
     projectedSpend: number;
@@ -627,6 +629,10 @@ const planColor = computed(() =>
                         </div>
                         <div style="display: flex; justify-content: space-between; padding: 3px 0">
                             <span style="color: #8a8c9a">Už minuté</span><span style="color: #e8544e">−{{ eur(plan.spent) }}</span>
+                        </div>
+                        <div v-if="plan.eventSpent > 0" style="display: flex; justify-content: space-between; padding: 0 0 3px; font-size: 11.5px">
+                            <span style="color: #b0b2bd">z toho udalosti (do tempa sa nerátajú)</span
+                            ><span style="color: #b0b2bd">{{ eur(plan.eventSpent) }}</span>
                         </div>
                     </div>
                 </div>

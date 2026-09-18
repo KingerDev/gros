@@ -22,7 +22,22 @@ interface Month {
     label: string;
     income: number;
     expense: number;
+    /** Časť výdavkov z udalostí (dovolenka…). */
+    events: number;
     net: number;
+}
+interface EventRow {
+    id: number;
+    name: string;
+    starts_on: string;
+    ends_on: string;
+    color: string;
+    icon: string | null;
+    /** Koľko z udalosti padlo do zvoleného obdobia. */
+    amount: number;
+    count: number;
+    /** Celá udalosť. */
+    total: number;
 }
 interface Merchant {
     merchant: string;
@@ -85,7 +100,8 @@ const props = defineProps<{
     };
     period: { key: string; ref: string | null; from: string | null; to: string | null; label: string };
     dataRange: { min: string | null; max: string | null };
-    periodSummary: { income: number; expense: number; net: number; savingsRate: number; count: number };
+    periodSummary: { income: number; expense: number; events: number; net: number; savingsRate: number; count: number };
+    events: EventRow[];
     expenseByCategory: CatRow[];
     incomeByCategory: CatRow[];
     monthlySeries: Month[];
@@ -95,7 +111,10 @@ const props = defineProps<{
     fixedVsVariable: { series: FvMonth[]; recurringCount: number };
 }>();
 
-const { eur, eurS, num, grad, primary, primarySoft, catName, catColor, catGlyph, hexToRgba } = useGros();
+const { eur, eurS, num, grad, primary, primarySoft, catName, catColor, catGlyph, hexToRgba, formatRange } = useGros();
+
+/** Farba „z toho udalosti" v stĺpcoch výdavkov — svetlejšia červená, lebo sú to stále výdavky. */
+const EVENT_TINT = '#f4a6a2';
 
 const detailCat = ref<{ id: number; name: string } | null>(null);
 
@@ -108,6 +127,7 @@ function toggleCat(id: number) {
 }
 
 const expTotal = computed(() => props.expenseByCategory.reduce((s, c) => s + c.amount, 0) || 1);
+const hasEventMonths = computed(() => props.monthlySeries.some((m) => m.events > 0));
 const merchantMax = computed(() => Math.max(1, ...props.topMerchants.map((m) => m.amount)));
 
 const trendBars = computed(() =>
@@ -115,7 +135,12 @@ const trendBars = computed(() =>
         label: m.label,
         bars: [
             { value: m.income, color: '#2ba35a', title: eur(m.income) },
-            { value: m.expense, color: '#e8544e', title: eur(m.expense) },
+            {
+                value: m.expense,
+                color: '#e8544e',
+                title: m.events > 0 ? `${eur(m.expense)} · z toho udalosti ${eur(m.events)}` : eur(m.expense),
+                part: { value: m.events, color: EVENT_TINT },
+            },
         ],
     })),
 );
@@ -477,6 +502,9 @@ const toneColor: Record<string, string> = { good: '#2ba35a', warn: '#c0453f', in
                     <div class="font-display" style="font-weight: 800; font-size: 26px; letter-spacing: -0.8px; margin-top: 8px; color: #e8544e">
                         {{ eur(periodSummary.expense) }}
                     </div>
+                    <div v-if="periodSummary.events > 0" style="font-size: 12px; font-weight: 600; color: #9a9cab; margin-top: 6px">
+                        z toho {{ eur(periodSummary.events) }} udalosti · bežné {{ eur(periodSummary.expense - periodSummary.events) }}
+                    </div>
                 </div>
                 <div style="background: #fff; border-radius: 20px; padding: 20px; box-shadow: 0 4px 18px rgba(60, 55, 40, 0.05)">
                     <div style="font-size: 12.5px; font-weight: 600; color: #8a8c9a">Miera úspor</div>
@@ -594,6 +622,12 @@ const toneColor: Record<string, string> = { good: '#2ba35a', warn: '#c0453f', in
                                 <span style="display: flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 600; color: #6a6c7a"
                                     ><span style="width: 9px; height: 9px; border-radius: 3px; background: #e8544e"></span>Výdavky</span
                                 >
+                                <span
+                                    v-if="hasEventMonths"
+                                    style="display: flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 600; color: #6a6c7a"
+                                    ><span style="width: 9px; height: 9px; border-radius: 3px" :style="{ background: EVENT_TINT }"></span>z toho
+                                    udalosti</span
+                                >
                             </div>
                         </template>
                         <div style="overflow-x: auto; margin-top: 20px">
@@ -603,6 +637,57 @@ const toneColor: Record<string, string> = { good: '#2ba35a', warn: '#c0453f', in
                         </div>
                     </Card>
                 </div>
+            </div>
+
+            <!-- Udalosti v období (dovolenka…) -->
+            <div v-if="events.length" style="margin-top: 14px">
+                <Card :title="`Udalosti · ${period.label}`">
+                    <template #right>
+                        <Link href="/events" style="font-size: 12px; font-weight: 700; color: #9a9cab">Všetky udalosti →</Link>
+                    </template>
+                    <div style="font-size: 12px; color: #8a8c9a; font-weight: 600; line-height: 1.55; margin-top: 8px">
+                        Sú vo výdavkoch obdobia, ale ako jednorazové — do priemerov, rezervy ani dôchodku nevstupujú.
+                    </div>
+                    <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 14px">
+                        <Link
+                            v-for="e in events"
+                            :key="e.id"
+                            :href="`/events/${e.id}`"
+                            style="
+                                display: flex;
+                                align-items: center;
+                                gap: 12px;
+                                padding: 11px 13px;
+                                border-radius: 14px;
+                                background: #f7f6f2;
+                                color: #20212e;
+                            "
+                        >
+                            <span
+                                style="
+                                    width: 38px;
+                                    height: 38px;
+                                    border-radius: 11px;
+                                    display: flex;
+                                    align-items: center;
+                                    justify-content: center;
+                                    font-size: 18px;
+                                    flex-shrink: 0;
+                                "
+                                :style="{ background: hexToRgba(e.color, 0.16), color: e.color }"
+                                >{{ e.icon || e.name[0] }}</span
+                            >
+                            <div style="flex: 1; min-width: 0">
+                                <div style="font-size: 14px; font-weight: 700">{{ e.name }}</div>
+                                <div style="font-size: 12px; color: #9a9cab; font-weight: 600">
+                                    {{ formatRange(e.starts_on, e.ends_on) }} · {{ e.count }}×
+                                    <template v-if="Math.abs(e.total - e.amount) > 0.01"> · celá udalosť {{ eur(e.total) }}</template>
+                                </div>
+                            </div>
+                            <div style="font-size: 15px; font-weight: 800; white-space: nowrap">{{ eur(e.amount) }}</div>
+                        </Link>
+                    </div>
+                </Card>
             </div>
 
             <!-- Fixné vs voľné výdavky -->

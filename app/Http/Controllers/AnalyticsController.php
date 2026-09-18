@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Services\AnalyticsService;
+use App\Services\EventService;
 use App\Services\FinancialProfileService;
 use App\Services\OpportunityCostService;
 use App\Services\RetirementService;
@@ -20,6 +21,7 @@ class AnalyticsController extends Controller
         FinancialProfileService $profiles,
         RetirementService $retirement,
         OpportunityCostService $cost,
+        EventService $events,
     ): Response {
         $user = $request->user();
         $period = Period::fromRequest($request);
@@ -32,6 +34,7 @@ class AnalyticsController extends Controller
             'incomeByCategory' => $analytics->byCategory($user, $period, 'income'),
             'monthlySeries' => $analytics->monthlySeries($user, 24),
             'topMerchants' => $analytics->topMerchants($user, $period, 12),
+            'events' => $events->inPeriod($user, $period),
             'insights' => $analytics->insights($user, $period),
             'periodReport' => $analytics->periodReport($user, $period),
             'fixedVsVariable' => $analytics->fixedVsVariable($user, 12),

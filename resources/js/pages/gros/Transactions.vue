@@ -8,7 +8,7 @@ import TransactionModal from '@/components/gros/TransactionModal.vue';
 import TxnTags from '@/components/gros/TxnTags.vue';
 import { useGros } from '@/composables/useGros';
 import GrosLayout from '@/layouts/GrosLayout.vue';
-import { Head, router } from '@inertiajs/vue3';
+import { Head, Link, router } from '@inertiajs/vue3';
 import { computed, ref } from 'vue';
 
 interface AccountRef {
@@ -27,6 +27,7 @@ interface Txn {
     id: number;
     type: string;
     category_id: number | null;
+    event_id: number | null;
     amount: number | string;
     account_id: number;
     to_account_id: number | null;
@@ -51,7 +52,7 @@ const props = defineProps<{
     savingsCategoryIds: number[];
 }>();
 
-const { eur, primary, categoryById, catName, catColor, catGlyph, hexToRgba, formatDate } = useGros();
+const { eur, primary, categoryById, catName, catColor, catGlyph, hexToRgba, formatDate, events, eventById } = useGros();
 
 const filter = ref<'all' | 'income' | 'expense' | 'transfer'>('all');
 const query = ref('');
@@ -91,6 +92,7 @@ function haystack(t: Txn): string {
             t.account?.name ?? '',
             t.to_account?.name ?? '',
             typeLabel(t),
+            eventById(t.event_id)?.name ?? '',
             t.exclusion_reason ?? '',
             (t.refunds ?? []).map((r) => r.note ?? '').join(' '),
             t.date,
@@ -193,6 +195,55 @@ const expenseTitle = computed(() => {
 });
 
 const excludeTxn = ref<Txn | null>(null);
+
+// ── Hromadný výber → priradenie k udalosti ─────────────────────────────
+const selecting = ref(false);
+const selected = ref(new Set<number>());
+const bulkEventId = ref<number | null>(null);
+
+/** Do udalosti sa dá dať len výdavok (vrátenie ide so svojím nákupom). */
+const selectable = (t: Txn) => t.type === 'expense' && !t.refund_for_id;
+
+function toggleSelecting() {
+    selecting.value = !selecting.value;
+    selected.value = new Set();
+    bulkEventId.value = events.value[0]?.id ?? null;
+}
+
+function toggleSelected(t: Txn) {
+    if (!selectable(t)) return;
+    const next = new Set(selected.value);
+    if (next.has(t.id)) next.delete(t.id);
+    else next.add(t.id);
+    selected.value = next;
+}
+
+const selectableFiltered = computed(() => filtered.value.filter(selectable));
+const allSelected = computed(() => selectableFiltered.value.length > 0 && selectableFiltered.value.every((t) => selected.value.has(t.id)));
+function toggleAll() {
+    selected.value = allSelected.value ? new Set() : new Set(selectableFiltered.value.map((t) => t.id));
+}
+
+const selectedSum = computed(() => props.transactions.filter((t) => selected.value.has(t.id)).reduce((s, t) => s + net(t), 0));
+
+function applyEvent(eventId: number | null) {
+    router.patch(
+        '/transactions/event',
+        { ids: [...selected.value], event_id: eventId },
+        {
+            preserveScroll: true,
+            onSuccess: () => {
+                selecting.value = false;
+                selected.value = new Set();
+            },
+        },
+    );
+}
+
+function onRowClick(t: Txn) {
+    if (selecting.value) toggleSelected(t);
+    else editRow(t);
+}
 
 // Držíme id, nie objekt — po rozpárovaní vrátenia sa modal prekreslí z čerstvých props
 const refundTxnId = ref<number | null>(null);
@@ -377,38 +428,72 @@ function exportCsv() {
                     <button type="button" :style="filterStyle('expense')" @click="filter = 'expense'">Výdavky</button>
                     <button type="button" :style="filterStyle('transfer')" @click="filter = 'transfer'">Prevody</button>
                 </div>
-                <button
-                    type="button"
-                    style="
-                        display: flex;
-                        align-items: center;
-                        gap: 7px;
-                        background: #fff;
-                        color: #20212e;
-                        font-weight: 700;
-                        font-size: 13px;
-                        padding: 9px 14px;
-                        border-radius: 12px;
-                        box-shadow: 0 2px 8px rgba(60, 55, 40, 0.06);
-                        white-space: nowrap;
-                    "
-                    @click="exportCsv"
-                >
-                    <svg
-                        width="15"
-                        height="15"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2.2"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
+                <div style="display: flex; align-items: center; gap: 8px">
+                    <button
+                        type="button"
+                        style="
+                            display: flex;
+                            align-items: center;
+                            gap: 7px;
+                            font-weight: 700;
+                            font-size: 13px;
+                            padding: 9px 14px;
+                            border-radius: 12px;
+                            box-shadow: 0 2px 8px rgba(60, 55, 40, 0.06);
+                            white-space: nowrap;
+                        "
+                        :style="selecting ? { background: primary, color: '#fff' } : { background: '#fff', color: '#20212e' }"
+                        title="Vybrať viac výdavkov a priradiť ich k udalosti (napr. dovolenke)"
+                        @click="toggleSelecting"
                     >
-                        <path d="M12 3v12M8 11l4 4 4-4" />
-                        <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
-                    </svg>
-                    Export CSV
-                </button>
+                        <svg
+                            width="15"
+                            height="15"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2.2"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                        >
+                            <rect x="3" y="3" width="18" height="18" rx="4" />
+                            <path d="M8 12l3 3 5-6" />
+                        </svg>
+                        {{ selecting ? 'Zrušiť výber' : 'Vybrať' }}
+                    </button>
+                    <button
+                        type="button"
+                        style="
+                            display: flex;
+                            align-items: center;
+                            gap: 7px;
+                            background: #fff;
+                            color: #20212e;
+                            font-weight: 700;
+                            font-size: 13px;
+                            padding: 9px 14px;
+                            border-radius: 12px;
+                            box-shadow: 0 2px 8px rgba(60, 55, 40, 0.06);
+                            white-space: nowrap;
+                        "
+                        @click="exportCsv"
+                    >
+                        <svg
+                            width="15"
+                            height="15"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2.2"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                        >
+                            <path d="M12 3v12M8 11l4 4 4-4" />
+                            <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
+                        </svg>
+                        Export CSV
+                    </button>
+                </div>
             </div>
 
             <div
@@ -432,14 +517,118 @@ function exportCsv() {
                 </div>
             </div>
 
+            <!-- Hromadné priradenie k udalosti -->
+            <div
+                v-if="selecting"
+                style="
+                    position: sticky;
+                    top: 8px;
+                    z-index: 30;
+                    display: flex;
+                    align-items: center;
+                    gap: 10px;
+                    flex-wrap: wrap;
+                    background: #20212e;
+                    color: #fff;
+                    border-radius: 16px;
+                    padding: 12px 14px;
+                    margin-bottom: 12px;
+                    box-shadow: 0 12px 30px rgba(20, 18, 30, 0.25);
+                "
+            >
+                <button type="button" style="font-size: 12.5px; font-weight: 700; text-decoration: underline; color: #d7d4c8" @click="toggleAll">
+                    {{ allSelected ? 'Zrušiť všetky' : 'Vybrať všetky výdavky' }}
+                </button>
+                <span style="font-size: 13px; font-weight: 700">{{ selected.size }} vybraných · {{ eur(selectedSum) }}</span>
+                <span style="flex: 1"></span>
+                <template v-if="events.length">
+                    <select
+                        v-model="bulkEventId"
+                        style="
+                            background: #33354a;
+                            color: #fff;
+                            border: none;
+                            border-radius: 10px;
+                            padding: 8px 10px;
+                            font-size: 13px;
+                            font-weight: 700;
+                        "
+                    >
+                        <option v-for="e in events" :key="e.id" :value="e.id">{{ (e.icon ? e.icon + ' ' : '') + e.name }}</option>
+                    </select>
+                    <button
+                        type="button"
+                        style="font-size: 13px; font-weight: 800; padding: 8px 13px; border-radius: 10px; color: #fff"
+                        :style="{ background: primary, opacity: selected.size ? 1 : 0.5 }"
+                        :disabled="!selected.size"
+                        @click="applyEvent(bulkEventId)"
+                    >
+                        Priradiť
+                    </button>
+                    <button
+                        type="button"
+                        style="font-size: 13px; font-weight: 700; padding: 8px 12px; border-radius: 10px; background: #33354a; color: #d7d4c8"
+                        :style="{ opacity: selected.size ? 1 : 0.5 }"
+                        :disabled="!selected.size"
+                        title="Vrátiť medzi bežné výdavky"
+                        @click="applyEvent(null)"
+                    >
+                        Vybrať z udalosti
+                    </button>
+                </template>
+                <Link
+                    v-else
+                    href="/events"
+                    style="font-size: 13px; font-weight: 800; padding: 8px 13px; border-radius: 10px; color: #fff"
+                    :style="{ background: primary }"
+                >
+                    Najprv vytvor udalosť →
+                </Link>
+            </div>
+
             <div style="background: #fff; border-radius: 20px; padding: 8px; box-shadow: 0 4px 18px rgba(60, 55, 40, 0.05)">
                 <div
                     v-for="t in filtered"
                     :key="t.id"
                     style="display: flex; align-items: center; gap: 13px; padding: 13px 14px; border-radius: 14px; cursor: pointer"
-                    :style="{ opacity: t.excluded_from_analytics ? 0.6 : 1 }"
-                    @click="editRow(t)"
+                    :style="{
+                        opacity: t.excluded_from_analytics || (selecting && !selectable(t)) ? 0.5 : 1,
+                        background: selected.has(t.id) ? hexToRgba(primary, 0.08) : 'transparent',
+                    }"
+                    @click="onRowClick(t)"
                 >
+                    <span
+                        v-if="selecting"
+                        style="
+                            width: 22px;
+                            height: 22px;
+                            border-radius: 7px;
+                            flex-shrink: 0;
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                            border: 1.5px solid #d7d4c8;
+                        "
+                        :style="{
+                            background: selected.has(t.id) ? primary : '#fff',
+                            borderColor: selected.has(t.id) ? primary : '#d7d4c8',
+                            visibility: selectable(t) ? 'visible' : 'hidden',
+                        }"
+                    >
+                        <svg
+                            v-if="selected.has(t.id)"
+                            width="13"
+                            height="13"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="#fff"
+                            stroke-width="3.2"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                        >
+                            <path d="M4 12l5 5L20 6" />
+                        </svg>
+                    </span>
                     <!-- Prevod -->
                     <template v-if="t.type === 'transfer'">
                         <span
@@ -495,6 +684,7 @@ function exportCsv() {
                             <div style="display: flex; align-items: center; gap: 7px; flex-wrap: wrap">
                                 <span style="font-size: 14.5px; font-weight: 700">{{ t.note || catName(t.category_id) }}</span>
                                 <TxnTags
+                                    :event-id="t.event_id"
                                     :source="t.source"
                                     :excluded="t.excluded_from_analytics"
                                     :reason="t.exclusion_reason"
@@ -532,7 +722,7 @@ function exportCsv() {
                             </div>
                         </div>
                         <button
-                            v-if="t.type === 'expense'"
+                            v-if="t.type === 'expense' && !selecting"
                             type="button"
                             style="
                                 width: 32px;
@@ -563,6 +753,7 @@ function exportCsv() {
                             </svg>
                         </button>
                         <button
+                            v-if="!selecting"
                             type="button"
                             style="
                                 width: 32px;
@@ -610,6 +801,7 @@ function exportCsv() {
                         </button>
                     </template>
                     <button
+                        v-if="!selecting"
                         type="button"
                         style="
                             width: 32px;

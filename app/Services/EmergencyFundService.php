@@ -148,7 +148,7 @@ class EmergencyFundService
             ->where('type', 'expense')
             ->where(fn ($q) => $q->whereNull('source')->orWhere('source', '!=', 'loan'))
             ->whereDate('date', '>=', $from->toDateString())->whereDate('date', '<=', $to->toDateString())
-            ->get(['id', 'category_id', 'date', 'note', 'amount', 'refunded_amount']);
+            ->get(['id', 'category_id', 'event_id', 'date', 'note', 'amount', 'refunded_amount']);
 
         $months = max(1, $this->countedMonths($user, $from, $to));
 
@@ -164,6 +164,7 @@ class EmergencyFundService
         $oneOffTotal = 0.0;
         $perCategory = [];
         $oneOffs = [];
+        $eventTotals = [];
 
         foreach ($transactions as $t) {
             $amount = (float) $t->net_amount;
@@ -172,6 +173,15 @@ class EmergencyFundService
             // sporenie a investovanie nie je spotreba — v kríze proste ustane
             if ($catId !== null && in_array($catId, $savingsIds, true)) {
                 $savingsFlow += $amount;
+
+                continue;
+            }
+
+            // výdavky z udalostí (dovolenka…) sú jednorazové z definície —
+            // nevypisujú sa po jednom, ale ako jeden riadok za udalosť
+            if ($t->event_id !== null) {
+                $oneOffTotal += $amount;
+                $eventTotals[$t->event_id] = ($eventTotals[$t->event_id] ?? 0) + $amount;
 
                 continue;
             }
@@ -228,6 +238,19 @@ class EmergencyFundService
 
         usort($oneOffs, fn ($a, $b) => $b['amount'] <=> $a['amount']);
 
+        $events = $user->events()->whereIn('id', array_keys($eventTotals))->get(['id', 'name', 'starts_on', 'color', 'icon'])
+            ->map(fn ($e) => [
+                'id' => $e->id,
+                'name' => $e->name,
+                'starts_on' => $e->starts_on->toDateString(),
+                'color' => $e->color,
+                'icon' => $e->icon,
+                'amount' => round($eventTotals[$e->id], 2),
+            ])
+            ->sortByDesc('amount')
+            ->values()
+            ->all();
+
         return [
             'months_counted' => $months,
             'essential' => round($essentialMonthly, 2),
@@ -240,6 +263,7 @@ class EmergencyFundService
             'savings_excluded' => round($savingsFlow / $months, 2),
             // jednorazovky vyňaté z priemeru + koľko by pridali, keby sa rátali
             'one_offs' => $oneOffs,
+            'one_off_events' => $events,
             'one_off_monthly' => round($oneOffTotal / $months, 2),
             'breakdown' => array_slice($breakdown, 0, 8),
             'has_data' => $months >= 2 && $totalMonthly > 0,

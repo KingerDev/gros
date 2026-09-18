@@ -3,7 +3,7 @@ import AskAi from '@/components/gros/AskAi.vue';
 import Card from '@/components/gros/Card.vue';
 import { useGros } from '@/composables/useGros';
 import GrosLayout from '@/layouts/GrosLayout.vue';
-import { Head, router } from '@inertiajs/vue3';
+import { Head, Link, router } from '@inertiajs/vue3';
 import { computed, ref } from 'vue';
 
 interface Factor {
@@ -80,6 +80,8 @@ interface Report {
             treat_as_recurring: boolean;
             monthly_impact: number;
         }[];
+        /** Udalosti (dovolenka…) — jednorazové z definície, jeden riadok za udalosť. */
+        one_off_events: { id: number; name: string; starts_on: string; color: string; icon: string | null; amount: number }[];
         one_off_monthly: number;
         breakdown: { category_id: number; monthly: number }[];
         has_data: boolean;
@@ -535,7 +537,11 @@ const inputStyle =
             </Card>
 
             <!-- ── Jednorazovky ────────────────────────────────────────── -->
-            <Card v-if="report.expenses.one_offs.length" title="Jednorazové výdavky" style="margin-top: 14px">
+            <Card
+                v-if="report.expenses.one_offs.length || report.expenses.one_off_events.length"
+                title="Jednorazové výdavky"
+                style="margin-top: 14px"
+            >
                 <template #right>
                     <span style="font-size: 12px; font-weight: 600; color: #9a9cab"
                         >nafúkli by priemer o {{ eur(report.expenses.one_off_monthly) }}/mes.</span
@@ -549,6 +555,34 @@ const inputStyle =
                 </div>
 
                 <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 16px">
+                    <!-- udalosti sa neprepínajú: to, že sa nebudú opakovať, povedal používateľ sám -->
+                    <Link
+                        v-for="e in report.expenses.one_off_events"
+                        :key="'e' + e.id"
+                        :href="`/events/${e.id}`"
+                        style="
+                            display: flex;
+                            align-items: center;
+                            gap: 11px;
+                            flex-wrap: wrap;
+                            border-radius: 13px;
+                            padding: 12px 14px;
+                            background: #f7f6f2;
+                            color: #20212e;
+                        "
+                    >
+                        <span style="font-size: 15px; flex-shrink: 0">{{ e.icon ?? '✈️' }}</span>
+                        <div style="flex: 1; min-width: 130px">
+                            <div style="font-size: 13px; font-weight: 700">{{ e.name }}</div>
+                            <div style="font-size: 11.5px; color: #9a9cab; font-weight: 600; margin-top: 2px">Udalosť · všetky jej výdavky</div>
+                        </div>
+                        <div class="font-display" style="font-weight: 800; font-size: 15px">{{ eur(e.amount) }}</div>
+                        <span
+                            style="font-size: 11.5px; font-weight: 700; padding: 7px 12px; border-radius: 10px; white-space: nowrap"
+                            :style="{ background: hexToRgba(e.color, 0.14), color: e.color }"
+                            >Neráta sa · udalosť</span
+                        >
+                    </Link>
                     <div
                         v-for="o in report.expenses.one_offs"
                         :key="o.id"

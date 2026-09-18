@@ -13,8 +13,8 @@ use Illuminate\Support\Collection;
  *
  *  - **spotreba** — peniaze, ktoré sú preč
  *  - **sporenie** — peniaze poslané do portfólia; nie sú minuté, len presunuté
- *  - **jednorazovky** — rovnátka, havária, nový notebook; v ročnom priemere
- *    vyzerajú ako pravidelný náklad, hoci sa nezopakujú
+ *  - **jednorazovky** — rovnátka, havária, nový notebook, dovolenka; v ročnom
+ *    priemere vyzerajú ako pravidelný náklad, hoci sa nezopakujú
  *
  * Bez tohto rozlíšenia vychádza miera úspor záporná u človeka, ktorý si
  * poctivo odkladá — presne preto to tu je na jednom mieste pre všetky
@@ -58,18 +58,26 @@ class ExpenseClassifier
     }
 
     /**
-     * Nájde výdavky, ktoré sa zjavne nebudú opakovať. Kritérium nie je veľkosť
-     * sumy, ale to, že kategória v danom mesiaci vyskočila vysoko nad svoj
-     * bežný mesiac — vďaka tomu sa chytí aj náklad rozdelený na splátky.
+     * Nájde výdavky, ktoré sa zjavne nebudú opakovať.
+     *
+     * Výdavky priradené k udalosti (dovolenka a pod.) sú jednorazové vždy —
+     * používateľ to povedal sám. Pri ostatných rozhoduje heuristika: nie
+     * veľkosť sumy, ale to, že kategória v danom mesiaci vyskočila vysoko nad
+     * svoj bežný mesiac — vďaka tomu sa chytí aj náklad rozdelený na splátky.
+     * Tá sa počíta už bez udalostí, aby dovolenka nenafúkla „bežný mesiac".
+     *
+     * Kolekcia musí mať načítaný stĺpec event_id.
      *
      * @param  Collection<int, Transaction>  $transactions
      * @return array<int, int>
      */
     public function oneOffIds(Collection $transactions, int $months): array
     {
-        $flagged = [];
+        [$fromEvents, $rest] = $transactions->partition(fn ($t) => $t->event_id !== null);
 
-        foreach ($transactions->groupBy('category_id') as $categoryId => $rows) {
+        $flagged = $fromEvents->pluck('id')->map(fn ($id) => (int) $id)->all();
+
+        foreach ($rest->groupBy('category_id') as $categoryId => $rows) {
             if ($categoryId === '' || $categoryId === null) {
                 continue;
             }

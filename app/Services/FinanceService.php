@@ -96,7 +96,7 @@ class FinanceService
         ];
     }
 
-    /** Priemerné mesačné výdavky za posledných 6 ukončených mesiacov s dátami. */
+    /** Priemerné mesačné výdavky za posledných 6 ukončených mesiacov s dátami — bez udalostí. */
     protected function avgMonthlyExpense(User $user): float
     {
         $today = CarbonImmutable::today();
@@ -105,7 +105,7 @@ class FinanceService
 
         for ($i = 1; $i <= 6; $i++) {
             $m = $today->subMonthsNoOverflow($i);
-            $exp = (float) $this->classifier->excludeSavings($user->transactions()->analyzed(), $user)
+            $exp = (float) $this->classifier->excludeSavings($user->transactions()->analyzed()->routine(), $user)
                 ->where('type', 'expense')
                 ->whereDate('date', '>=', $m->startOfMonth()->toDateString())->whereDate('date', '<=', $m->endOfMonth()->toDateString())
                 ->sum(Transaction::netExpression());
@@ -135,7 +135,8 @@ class FinanceService
             $children = $childrenByParent->get($b->category_id);
             $catIds = collect([$b->category_id])->merge($children?->pluck('id') ?? [])->all();
 
-            $spent = (float) $user->transactions()->analyzed()
+            // výdavky z udalostí čerpajú rozpočet udalosti, nie mesačný rozpočet kategórie
+            $spent = (float) $user->transactions()->analyzed()->routine()
                 ->where('type', 'expense')
                 ->whereIn('category_id', $catIds)
                 ->where('date', '>=', $from->toDateString())
@@ -187,7 +188,7 @@ class FinanceService
             ->merge($user->categories()->where('parent_id', $budget->category_id)->pluck('id'))
             ->all();
 
-        return $user->transactions()->analyzed()
+        return $user->transactions()->analyzed()->routine()
             ->where('type', 'expense')
             ->whereIn('category_id', $catIds)
             ->where('date', '>=', $from->toDateString())

@@ -19,13 +19,15 @@ class AnalyticsService
         // presuny do portfólia nie sú spotreba — do výdavkov ani do miery úspor nepatria
         $rows = $period->apply($this->classifier->excludeSavings(
             $user->transactions()->analyzed()->where('type', '!=', 'transfer'), $user
-        ))->get(['type', 'amount', 'refunded_amount']);
+        ))->get(['type', 'amount', 'refunded_amount', 'event_id']);
         $income = (float) $rows->where('type', 'income')->sum('amount');
         $expense = (float) $rows->where('type', 'expense')->sum('net_amount');
 
         return [
             'income' => $income,
             'expense' => $expense,
+            // z toho výdavky z udalostí (dovolenka…) — sú v `expense`, len nie bežné
+            'events' => (float) $rows->where('type', 'expense')->whereNotNull('event_id')->sum('net_amount'),
             'net' => $income - $expense,
             'savingsRate' => $income > 0 ? round(($income - $expense) / $income * 100) : 0,
             'count' => $rows->count(),
@@ -74,7 +76,7 @@ class AnalyticsService
             ->values();
     }
 
-    /** Príjmy/výdavky/netto po mesiacoch (posledných N mesiacov). */
+    /** Príjmy/výdavky/netto po mesiacoch (posledných N mesiacov); `events` je časť výdavkov z udalostí. */
     public function monthlySeries(User $user, int $months = 24): Collection
     {
         $today = CarbonImmutable::today();
@@ -87,6 +89,14 @@ class AnalyticsService
             ->groupBy('ym', 'type')
             ->get();
 
+        $events = $user->transactions()->analyzed()
+            ->where('type', 'expense')
+            ->whereNotNull('event_id')
+            ->where('date', '>=', $start->toDateString())
+            ->selectRaw(Transaction::yearMonth().' as ym, '.Transaction::netSum('amount'))
+            ->groupBy('ym')
+            ->pluck('amount', 'ym');
+
         $out = collect();
         for ($i = 0; $i < $months; $i++) {
             $m = $start->addMonths($i);
@@ -98,6 +108,7 @@ class AnalyticsService
                 'label' => $this->shortMonth($m),
                 'income' => $income,
                 'expense' => $expense,
+                'events' => (float) ($events[$ym] ?? 0),
                 'net' => $income - $expense,
             ]);
         }
@@ -245,10 +256,14 @@ class AnalyticsService
     }
 
     /** @return array{income: float, expense: float, net: float, rate: int, count: int} */
-    protected function rangeTotals(User $user, Period $period): array
+    protected function rangeTotals(User $user, Period $period, bool $routineOnly = false): array
     {
-        $rows = $period->apply($user->transactions()->analyzed()->where('type', '!=', 'transfer'))
-            ->get(['type', 'amount', 'refunded_amount']);
+        $query = $user->transactions()->analyzed()->where('type', '!=', 'transfer');
+        if ($routineOnly) {
+            $query->routine();
+        }
+
+        $rows = $period->apply($query)->get(['type', 'amount', 'refunded_amount']);
 
         $income = (float) $rows->where('type', 'income')->sum('amount');
         $expense = (float) $rows->where('type', 'expense')->sum('net_amount');
@@ -327,22 +342,40 @@ class AnalyticsService
 
         $label = $period->label;
 
-        // Priemer výdavkov za tri predchádzajúce rovnako dlhé obdobia
+        // Udalosti (dovolenka…) v období: pomenujú sa zvlášť a porovnanie
+        // s priemerom beží bez nich — inak by každý mesiac s dovolenkou
+        // hlásil „míňaš viac než zvyčajne", hoci bežné míňanie sa nezmenilo.
+        $events = $period->apply($user->transactions()->analyzed()->where('type', 'expense')->whereNotNull('event_id'))
+            ->with('event:id,name')
+            ->get(['event_id', 'amount', 'refunded_amount'])
+            ->groupBy('event_id');
+        $eventTotal = (float) $events->flatten()->sum('net_amount');
+
+        foreach ($events as $rows) {
+            $out[] = [
+                'tone' => 'info',
+                'text' => "{$label} · na „{$rows->first()->event->name}\" išlo ".$this->eur($rows->sum('net_amount')).' — ráta sa ako jednorazový výdavok.',
+            ];
+        }
+
+        // Priemer bežných výdavkov za tri predchádzajúce rovnako dlhé obdobia
+        $routine = $cur['expense'] - $eventTotal;
         $before = [];
         $p = $period;
         while (count($before) < 3 && ($p = $p->previous())) {
-            $before[] = $this->rangeTotals($user, $p)['expense'];
+            $before[] = $this->rangeTotals($user, $p, routineOnly: true)['expense'];
         }
         $avg = $before ? array_sum($before) / count($before) : 0;
 
-        if ($avg > 0 && $cur['expense'] > 0) {
-            $diff = ($cur['expense'] - $avg) / $avg * 100;
+        if ($avg > 0 && $routine > 0) {
+            $diff = ($routine - $avg) / $avg * 100;
+            $scope = $eventTotal > 0 ? ' (bez udalostí)' : '';
             if (abs($diff) >= 10) {
                 $out[] = [
                     'tone' => $diff > 0 ? 'warn' : 'good',
                     'text' => $diff > 0
-                        ? "{$label} · minul si o ".round($diff).' % viac než býva priemer.'
-                        : "{$label} · minul si o ".round(abs($diff)).' % menej než býva priemer. 👏',
+                        ? "{$label} · minul si{$scope} o ".round($diff).' % viac než býva priemer.'
+                        : "{$label} · minul si{$scope} o ".round(abs($diff)).' % menej než býva priemer. 👏',
                 ];
             }
         }

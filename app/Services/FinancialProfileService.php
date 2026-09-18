@@ -104,7 +104,7 @@ class FinancialProfileService
         $transactions = $user->transactions()->analyzed()
             ->where('type', 'expense')
             ->whereDate('date', '>=', $from->toDateString())->whereDate('date', '<=', $to->toDateString())
-            ->get(['id', 'category_id', 'date', 'amount', 'refunded_amount']);
+            ->get(['id', 'category_id', 'event_id', 'date', 'amount', 'refunded_amount']);
 
         if ($transactions->isEmpty()) {
             return [];

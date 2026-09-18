@@ -186,6 +186,10 @@ class Assistant
           konkrétne transakcie (list_transactions) z kategórií, ktoré narástli najviac. Odpoveď vždy podlož
           konkrétnymi položkami s dátumom a sumou.
         - Ak nástroj nevráti dáta, povedz to priamo. Nedomýšľaj si chýbajúce čísla.
+        - Udalosti (dovolenka, svadba, sťahovanie) sú výdavky, ktoré si používateľ zoskupil a ktoré sa
+          nebudú pravidelne opakovať. Pri otázkach „míňam viac než zvyčajne?" alebo o bežných mesačných
+          výdavkoch ich od bežného míňania oddeľ (pole `z_toho_udalosti`) a povedz to. Na „koľko ma stála
+          dovolenka" použi nástroj events.
         - Sumy uvádzaj zaokrúhlené na celé eurá, ak nejde o malé sumy.
         - Buď stručný. Odpoveď na jednoduchú otázku sú dve-tri vety, nie esej. Odrážky použi len na zoznamy položiek.
 

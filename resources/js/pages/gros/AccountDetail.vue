@@ -15,6 +15,7 @@ interface Txn {
     id: number;
     type: string;
     category_id: number | null;
+    event_id: number | null;
     amount: number | string;
     account_id: number;
     to_account_id: number | null;
@@ -257,6 +258,7 @@ function editRow(t: Txn) {
                             <div style="display: flex; align-items: center; gap: 7px; flex-wrap: wrap">
                                 <span style="font-size: 14.5px; font-weight: 700">{{ t.note || catName(t.category_id) }}</span>
                                 <TxnTags
+                                    :event-id="t.event_id"
                                     :source="t.source"
                                     :excluded="t.excluded_from_analytics"
                                     :reason="t.exclusion_reason"

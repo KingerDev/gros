@@ -46,6 +46,7 @@ class HandleInertiaRequests extends Middleware
             'summary' => $user ? $this->summary($user) : null,
             'categories' => $user ? $this->categories($user) : [],
             'recentCategoryIds' => $user ? $this->recentCategoryIds($user) : [],
+            'events' => $user ? $this->events($user) : [],
             // POZOR: nesmie sa volať 'ref' — Inertia spreadne page-propy na vnode
             // stránky a Vue by 'ref' vyložil ako template ref (crash v prode).
             'catalog' => [
@@ -97,6 +98,27 @@ class HandleInertiaRequests extends Middleware
             ->orderBy('name')
             ->get(['id', 'parent_id', 'name', 'type', 'color', 'icon'])
             ->toArray();
+    }
+
+    /**
+     * Udalosti (dovolenka…) — na výber pri transakcii a na štítky v zoznamoch.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    protected function events(User $user): array
+    {
+        return $user->events()
+            ->orderByDesc('starts_on')
+            ->get(['id', 'name', 'starts_on', 'ends_on', 'color', 'icon'])
+            ->map(fn ($e) => [
+                'id' => $e->id,
+                'name' => $e->name,
+                'starts_on' => $e->starts_on->toDateString(),
+                'ends_on' => $e->ends_on->toDateString(),
+                'color' => $e->color,
+                'icon' => $e->icon,
+            ])
+            ->all();
     }
 
     /**

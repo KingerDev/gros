@@ -111,6 +111,36 @@ class TransactionController extends Controller
     }
 
     /**
+     * Hromadne priradí výdavky k udalosti (event_id) alebo ich z nej vyberie
+     * (event_id = null). Príjmy, prevody a vrátenia sa preskočia — udalosť
+     * zoskupuje len výdavky.
+     */
+    public function bulkEvent(Request $request): RedirectResponse
+    {
+        $user = $request->user();
+
+        $data = $request->validate([
+            'ids' => ['required', 'array', 'min:1'],
+            'ids.*' => ['integer'],
+            'event_id' => ['nullable', Rule::exists('events', 'id')->where('user_id', $user->id)],
+        ]);
+
+        $count = $user->transactions()
+            ->whereIn('id', $data['ids'])
+            ->where('type', 'expense')
+            ->whereNull('refund_for_id')
+            ->update(['event_id' => $data['event_id'] ?? null]);
+
+        if (empty($data['event_id'])) {
+            return back()->with('success', "Z udalosti vybraté: $count.");
+        }
+
+        $name = $user->events()->find($data['event_id'])->name;
+
+        return back()->with('success', "Do udalosti „{$name}\" priradené: $count.");
+    }
+
+    /**
      * Nové vrátenie peňazí k výdavku: príjem na účet + zníženie výdavku v analýzach.
      */
     public function storeRefund(Request $request, Transaction $transaction, RefundService $refunds): RedirectResponse
@@ -220,6 +250,7 @@ class TransactionController extends Controller
             'note' => ['nullable', 'string', 'max:191'],
             'excluded_from_analytics' => ['boolean'],
             'exclusion_reason' => ['required_if:excluded_from_analytics,true,1', 'nullable', 'string', 'max:191'],
+            'event_id' => ['nullable', Rule::exists('events', 'id')->where('user_id', $userId)],
         ];
 
         if (! $isRefund) {
@@ -237,6 +268,9 @@ class TransactionController extends Controller
         // Vylúčenie z analýzy: bez zaškrtnutia sa dôvod nedrží
         $data['excluded_from_analytics'] = (bool) ($data['excluded_from_analytics'] ?? false);
         $data['exclusion_reason'] = $data['excluded_from_analytics'] ? ($data['exclusion_reason'] ?? null) : null;
+
+        // Udalosť zoskupuje len výdavky — vrátenie ide so svojím nákupom
+        $data['event_id'] = $type === 'expense' && ! $isRefund ? ($data['event_id'] ?? null) : null;
 
         if ($isRefund) {
             // Nová suma vrátenia sa musí zmestiť do zvyšku pôvodného nákupu

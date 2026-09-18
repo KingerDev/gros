@@ -38,7 +38,8 @@ class AnomalyDetector
         $historyFrom = $today->subMonths(self::WINDOW);
         $recentFrom = $today->subDays($days);
 
-        $history = $this->classifier->excludeSavings($user->transactions()->analyzed(), $user)
+        // výdavky z udalostí majú známy dôvod — medzi anomálie ani do bežnej hladiny nepatria
+        $history = $this->classifier->excludeSavings($user->transactions()->analyzed()->routine(), $user)
             ->with('category:id,name,color')
             ->where('type', 'expense')
             ->whereNotNull('category_id')
