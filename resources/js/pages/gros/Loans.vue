@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import AddButton from '@/components/gros/AddButton.vue';
-import AskAi from '@/components/gros/AskAi.vue';
 import LoanModal from '@/components/gros/LoanModal.vue';
 import { useGros } from '@/composables/useGros';
 import GrosLayout from '@/layouts/GrosLayout.vue';
@@ -459,8 +458,6 @@ function showProgress(l: Loan): boolean {
                     voľba — a najprv patrí núdzový fond, až potom čokoľvek iné.
                 </div>
             </div>
-
-            <AskAi style="margin-top: 14px" :questions="['Oplatí sa mi doplácať úver skôr?', 'Koľko ma úver celkovo stojí?']" />
         </div>
 
         <LoanModal v-if="modalOpen" :loan="editLoan" :accounts="accounts" @close="modalOpen = false" />

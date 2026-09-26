@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import AskAi from '@/components/gros/AskAi.vue';
 import Card from '@/components/gros/Card.vue';
 import DonutChart from '@/components/gros/DonutChart.vue';
 import EventAssignModal from '@/components/gros/EventAssignModal.vue';
@@ -104,8 +103,6 @@ const assignRange = computed(() => {
 function removeFromEvent(t: Txn) {
     router.patch('/transactions/event', { ids: [t.id], event_id: null }, { preserveScroll: true });
 }
-
-const questions = computed(() => [`Koľko ma stála udalosť „${props.event.name}"?`, `Na čo som v „${props.event.name}" minul najviac?`]);
 </script>
 
 <template>
@@ -403,8 +400,6 @@ const questions = computed(() => [`Koľko ma stála udalosť „${props.event.na
                     </div>
                 </div>
             </template>
-
-            <AskAi style="margin-top: 14px" :questions="questions" />
         </div>
 
         <EventModal v-if="showEdit" :event="event" @close="showEdit = false" />

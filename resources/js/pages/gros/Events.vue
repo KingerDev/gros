@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import AddButton from '@/components/gros/AddButton.vue';
-import AskAi from '@/components/gros/AskAi.vue';
 import EventModal from '@/components/gros/EventModal.vue';
 import ProgressBar from '@/components/gros/ProgressBar.vue';
 import { useGros } from '@/composables/useGros';
@@ -195,12 +194,6 @@ function budgetPct(e: EventRow): number {
                 Zatiaľ žiadne udalosti.<br />
                 Vytvor napríklad „Dovolenka Dublin 2026" a priraď k nej výdavky z cesty.
             </div>
-
-            <AskAi
-                v-if="events.length"
-                style="margin-top: 14px"
-                :questions="['Koľko ma stáli dovolenky tento rok?', 'Na čo som na poslednej dovolenke minul najviac?']"
-            />
         </div>
 
         <EventModal v-if="showModal" @close="showModal = false" />

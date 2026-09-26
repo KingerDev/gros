@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import AskAi from '@/components/gros/AskAi.vue';
 import Card from '@/components/gros/Card.vue';
 import FanChart from '@/components/gros/FanChart.vue';
 import { useGros } from '@/composables/useGros';
@@ -1273,8 +1272,6 @@ const inputStyle =
                     prídeš aj s iným majetkom či štátnym dôchodkom.
                 </div>
             </Card>
-
-            <AskAi style="margin-top: 14px" :questions="['Ako som na tom s dôchodkovým plánom?', 'Čo najviac ovplyvní, kedy budem slobodný?']" />
         </div>
     </GrosLayout>
 </template>

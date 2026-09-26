@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import AddButton from '@/components/gros/AddButton.vue';
-import AskAi from '@/components/gros/AskAi.vue';
 import InvestmentDetailModal from '@/components/gros/InvestmentDetailModal.vue';
 import InvestmentModal from '@/components/gros/InvestmentModal.vue';
 import LotModal from '@/components/gros/LotModal.vue';
@@ -713,11 +712,6 @@ function openEdit() {
                     Zatiaľ žiadne investície
                 </div>
             </div>
-
-            <AskAi
-                style="margin-top: 14px"
-                :questions="['Ako som na tom s investíciami?', 'Aké je moje portfólio rizikové?', 'Koľko som reálne zarobil na investíciách?']"
-            />
         </div>
 
         <InvestmentModal v-if="showNew" @close="showNew = false" />

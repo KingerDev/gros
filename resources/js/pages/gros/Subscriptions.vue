@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import AddButton from '@/components/gros/AddButton.vue';
-import AskAi from '@/components/gros/AskAi.vue';
 import SubscriptionModal from '@/components/gros/SubscriptionModal.vue';
 import { useGros } from '@/composables/useGros';
 import GrosLayout from '@/layouts/GrosLayout.vue';
@@ -203,8 +202,6 @@ function cancel(s: Subscription) {
                     Zatiaľ žiadne predplatné
                 </div>
             </div>
-
-            <AskAi style="margin-top: 14px" :questions="['Ktoré predplatné najmenej využívam?', 'Koľko ma predplatné stojí ročne?']" />
         </div>
 
         <SubscriptionModal v-if="modalOpen" :subscription="editSub" :accounts="accounts" @close="modalOpen = false" />

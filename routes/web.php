@@ -2,7 +2,6 @@
 
 use App\Http\Controllers\AccountController;
 use App\Http\Controllers\AnalyticsController;
-use App\Http\Controllers\AssistantController;
 use App\Http\Controllers\BudgetController;
 use App\Http\Controllers\CategoryController;
 use App\Http\Controllers\DashboardController;
@@ -15,7 +14,6 @@ use App\Http\Controllers\ReserveController;
 use App\Http\Controllers\RetirementController;
 use App\Http\Controllers\SubscriptionController;
 use App\Http\Controllers\TransactionController;
-use App\Http\Controllers\YoyController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
@@ -58,13 +56,6 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::patch('investments/{investment}/contributing', [InvestmentController::class, 'contributing'])->name('investments.contributing');
     Route::post('investments/{investment}/lots', [InvestmentController::class, 'storeLot'])->name('investments.lots.store');
     Route::delete('investments/{investment}/lots/{lot}', [InvestmentController::class, 'destroyLot'])->name('investments.lots.destroy');
-
-    // Asistent
-    Route::get('assistant', [AssistantController::class, 'index'])->name('assistant.index');
-    Route::get('assistant/{chat}', [AssistantController::class, 'index'])->name('assistant.chat');
-    Route::post('assistant/send', [AssistantController::class, 'send'])->name('assistant.send');
-    Route::get('assistant-briefing', [AssistantController::class, 'briefing'])->name('assistant.briefing');
-    Route::delete('assistant/{chat}', [AssistantController::class, 'destroy'])->name('assistant.destroy');
 
     // Oplatí sa mi to?
     Route::get('purchase', [PurchaseController::class, 'index'])->name('purchase.index');
@@ -113,7 +104,8 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::delete('budgets/{budget}', [BudgetController::class, 'destroy'])->name('budgets.destroy');
 
     // Medziročne
-    Route::get('yoy', YoyController::class)->name('yoy.index');
+    // Medziročne je teraz sekcia v Analýzach
+    Route::redirect('yoy', '/analytics#po-rokoch');
 
     // Analýzy
     Route::get('analytics', [AnalyticsController::class, 'index'])->name('analytics.index');

@@ -240,33 +240,6 @@ class FinanceService
             ->values();
     }
 
-    /** Príjmy/výdavky/úspory po mesiacoch za posledných N mesiacov. */
-    public function monthlyHistory(User $user, int $months = 6): Collection
-    {
-        $today = CarbonImmutable::today();
-        $start = $today->startOfMonth()->subMonths($months - 1);
-
-        $rows = $this->classifier->excludeSavings($user->transactions()->analyzed(), $user)
-            ->where('date', '>=', $start->toDateString())
-            ->get(['type', 'amount', 'refunded_amount', 'date']);
-
-        $out = collect();
-        for ($i = 0; $i < $months; $i++) {
-            $m = $start->addMonths($i);
-            $monthRows = $rows->filter(fn ($t) => $t->date->format('Y-m') === $m->format('Y-m'));
-            $income = (float) $monthRows->where('type', 'income')->sum('amount');
-            $expense = (float) $monthRows->where('type', 'expense')->sum('net_amount');
-            $out->push([
-                'label' => $this->monthLabel($m->month),
-                'income' => $income,
-                'expense' => $expense,
-                'saved' => max(0, $income - $expense),
-            ]);
-        }
-
-        return $out;
-    }
-
     /** Príjmy/výdavky/čistý tok + investované (nákupy lots) po rokoch (medziročne). */
     public function yearlyHistory(User $user): Collection
     {

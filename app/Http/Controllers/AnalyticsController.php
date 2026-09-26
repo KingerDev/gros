@@ -4,8 +4,8 @@ namespace App\Http\Controllers;
 
 use App\Services\AnalyticsService;
 use App\Services\EventService;
+use App\Services\FinanceService;
 use App\Services\FinancialProfileService;
-use App\Services\OpportunityCostService;
 use App\Services\RetirementService;
 use App\Support\Period;
 use Illuminate\Http\JsonResponse;
@@ -20,8 +20,8 @@ class AnalyticsController extends Controller
         AnalyticsService $analytics,
         FinancialProfileService $profiles,
         RetirementService $retirement,
-        OpportunityCostService $cost,
         EventService $events,
+        FinanceService $finance,
     ): Response {
         $user = $request->user();
         $period = Period::fromRequest($request);
@@ -43,10 +43,8 @@ class AnalyticsController extends Controller
                 $retirement->realReturnAssumption($user),
                 (float) ($user->retire_withdrawal ?? 4)
             ),
-            'opportunityCost' => [
-                'context' => $cost->context($user),
-                'categories' => $cost->categories($user, 12, 6),
-            ],
+            // po rokoch — nezávisle od zvoleného obdobia
+            'years' => $finance->yearlyHistory($user),
         ]);
     }
 

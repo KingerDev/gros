@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import AskAi from '@/components/gros/AskAi.vue';
 import Card from '@/components/gros/Card.vue';
 import CategoryDetailModal from '@/components/gros/CategoryDetailModal.vue';
 import DeltaBadge from '@/components/gros/DeltaBadge.vue';
@@ -69,6 +68,17 @@ interface PeriodReport {
     biggestExpense: { note: string | null; category_id: number | null; amount: number; date: string } | null;
 }
 
+interface Year {
+    year: number;
+    income: number;
+    expense: number;
+    net: number;
+    rate: number;
+    invested: number;
+    sold: number;
+    investedPct: number | null;
+}
+
 interface SrMonth {
     ym: string;
     label: string;
@@ -94,10 +104,7 @@ interface SavingsRate {
 
 const props = defineProps<{
     savingsRate: SavingsRate;
-    opportunityCost: {
-        context: { years: number; retire_year: number; real_return: number };
-        categories: { category_id: number; monthly: number; lifetime: number }[];
-    };
+    years: Year[];
     period: { key: string; ref: string | null; from: string | null; to: string | null; label: string };
     dataRange: { min: string | null; max: string | null };
     periodSummary: { income: number; expense: number; events: number; net: number; savingsRate: number; count: number };
@@ -184,9 +191,23 @@ function srScaleStyle(rate: number): Record<string, string> {
     return rate === srNearestScale.value ? { background: primary.value, color: '#fff' } : { background: '#fff', color: '#20212e' };
 }
 
-// ── Doživotná cena výdavkov ─────────────────────────────────────────────
-const ocCategories = computed(() => props.opportunityCost?.categories ?? []);
-const ocMax = computed(() => Math.max(1, ...ocCategories.value.map((c) => c.lifetime)));
+// ── Po rokoch ───────────────────────────────────────────────────────────
+const hasInvested = computed(() => props.years.some((y) => y.invested > 0));
+
+const yearBars = computed(() =>
+    props.years.map((y) => ({
+        label: String(y.year),
+        bars: [
+            { value: y.income, color: 'linear-gradient(180deg,#3fc274,#2ba35a)', title: eur(y.income) },
+            { value: y.expense, color: 'linear-gradient(180deg,#ff7a63,#e8544e)', title: eur(y.expense) },
+            { value: Math.max(0, y.net), color: y.net < 0 ? '#e8544e' : primary.value, title: eurS(y.net) },
+            ...(hasInvested.value ? [{ value: y.invested, color: 'linear-gradient(180deg,#b197fc,#9775fa)', title: eur(y.invested) }] : []),
+        ],
+    })),
+);
+
+/** Riadky tabuľky zostupne, s medziročnou zmenou čistého toku. */
+const yearRows = computed(() => props.years.map((y, i) => ({ ...y, delta: i > 0 ? y.net - props.years[i - 1].net : null })).reverse());
 
 const toneBg: Record<string, string> = { good: '#e6f7ec', warn: '#fdeaea', info: '#eef6ff' };
 const toneColor: Record<string, string> = { good: '#2ba35a', warn: '#c0453f', info: '#2a6ebd' };
@@ -351,52 +372,6 @@ const toneColor: Record<string, string> = { good: '#2ba35a', warn: '#c0453f', in
                         >. Bez tohto očistenia by ti vyšlo
                         <b>{{ savingsRate.windows[12].gross_rate === null ? '—' : num(savingsRate.windows[12].gross_rate, 1) + ' %' }}</b
                         >, čo by tvrdilo, že míňaš viac, než zarábaš — hoci si tie peniaze odložil.
-                    </div>
-                </Card>
-            </div>
-
-            <!-- Čo ťa výdavky stoja do dôchodku -->
-            <div v-if="ocCategories.length" style="margin-bottom: 14px">
-                <Card :title="`Čo ťa výdavky stoja do roku ${opportunityCost.context.retire_year}`">
-                    <template #right>
-                        <span style="font-size: 12px; font-weight: 600; color: #9a9cab">priemer za 12 mesiacov</span>
-                    </template>
-
-                    <div style="font-size: 12.5px; color: #8a8c9a; font-weight: 600; line-height: 1.6; margin-top: 10px">
-                        Nie koľko minieš, ale čím by tie peniaze boli, keby šli do portfólia. Všetko v dnešných eurách, pri reálnom výnose
-                        {{ num(opportunityCost.context.real_return, 1) }} % ročne po inflácii.
-                    </div>
-
-                    <div style="display: flex; flex-direction: column; gap: 12px; margin-top: 18px">
-                        <div v-for="c in ocCategories" :key="c.category_id">
-                            <div style="display: flex; align-items: center; gap: 9px; font-size: 13px; font-weight: 700">
-                                <span
-                                    style="
-                                        width: 26px;
-                                        height: 26px;
-                                        border-radius: 9px;
-                                        display: flex;
-                                        align-items: center;
-                                        justify-content: center;
-                                        font-size: 13px;
-                                        flex-shrink: 0;
-                                    "
-                                    :style="{ background: hexToRgba(catColor(c.category_id), 0.16) }"
-                                    >{{ catGlyph(c.category_id) }}</span
-                                >
-                                <span style="flex: 1; min-width: 0">{{ catName(c.category_id) }}</span>
-                                <span style="color: #9a9cab; font-weight: 600; font-size: 12px">{{ eur(c.monthly) }}/mes.</span>
-                                <span class="font-display" style="font-weight: 800; font-size: 15px; min-width: 92px; text-align: right">{{
-                                    eur(c.lifetime)
-                                }}</span>
-                            </div>
-                            <div style="height: 7px; border-radius: 4px; background: #f5f4ef; overflow: hidden; margin-top: 6px; margin-left: 35px">
-                                <div
-                                    style="height: 100%; border-radius: 4px"
-                                    :style="{ width: (c.lifetime / ocMax) * 100 + '%', background: catColor(c.category_id) }"
-                                ></div>
-                            </div>
-                        </div>
                     </div>
                 </Card>
             </div>
@@ -846,14 +821,83 @@ const toneColor: Record<string, string> = { good: '#2ba35a', warn: '#c0453f', in
                 </div>
             </div>
 
-            <AskAi
-                style="margin-top: 14px"
-                :questions="[
-                    'Prečo som tento mesiac minul viac ako minulý?',
-                    'Ktorá kategória mi rastie najrýchlejšie?',
-                    'Na čom by som vedel najviac ušetriť?',
-                ]"
-            />
+            <!-- Po rokoch (predtým samostatná stránka Medziročne) -->
+            <div v-if="years.length" id="po-rokoch" style="margin-top: 14px; scroll-margin-top: 20px">
+                <Card title="Po rokoch">
+                    <template #right>
+                        <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 14px">
+                            <span style="display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: #6a6c7a"
+                                ><span style="width: 10px; height: 10px; border-radius: 3px; background: #2ba35a"></span>Príjmy</span
+                            >
+                            <span style="display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: #6a6c7a"
+                                ><span style="width: 10px; height: 10px; border-radius: 3px; background: #e8544e"></span>Výdavky</span
+                            >
+                            <span style="display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: #6a6c7a"
+                                ><span style="width: 10px; height: 10px; border-radius: 3px" :style="{ background: primary }"></span>Úspory</span
+                            >
+                            <span
+                                v-if="hasInvested"
+                                style="display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: #6a6c7a"
+                                ><span style="width: 10px; height: 10px; border-radius: 3px; background: #9775fa"></span>Investované</span
+                            >
+                        </div>
+                    </template>
+                    <div style="margin-top: 26px">
+                        <MonthlyBars :items="yearBars" :height="220" :bar-max="26" />
+                    </div>
+
+                    <div style="overflow-x: auto; margin-top: 18px; border-top: 1px solid #f1efe8">
+                        <div
+                            style="
+                                display: flex;
+                                align-items: center;
+                                gap: 12px;
+                                padding: 12px 6px 6px;
+                                font-size: 11.5px;
+                                font-weight: 700;
+                                color: #9a9cab;
+                                text-transform: uppercase;
+                                letter-spacing: 0.4px;
+                                min-width: 600px;
+                            "
+                        >
+                            <span style="width: 52px">Rok</span>
+                            <span style="flex: 1; text-align: right">Príjmy</span>
+                            <span style="flex: 1; text-align: right">Výdavky</span>
+                            <span v-if="hasInvested" style="flex: 1; text-align: right">Investované</span>
+                            <span style="flex: 1; text-align: right">Čistý tok</span>
+                            <span style="width: 64px; text-align: right">Úspory</span>
+                            <span style="width: 100px; text-align: right">Zmena</span>
+                        </div>
+                        <div
+                            v-for="r in yearRows"
+                            :key="r.year"
+                            style="display: flex; align-items: center; gap: 12px; padding: 11px 6px; min-width: 600px"
+                        >
+                            <span class="font-display" style="width: 52px; font-weight: 800; font-size: 15px">{{ r.year }}</span>
+                            <span style="flex: 1; text-align: right; font-size: 13.5px; font-weight: 700; color: #2ba35a">{{ eur(r.income) }}</span>
+                            <span style="flex: 1; text-align: right; font-size: 13.5px; font-weight: 700; color: #e8544e">{{ eur(r.expense) }}</span>
+                            <span v-if="hasInvested" style="flex: 1; text-align: right; font-size: 13.5px; font-weight: 700; color: #9775fa">
+                                {{ r.invested > 0 ? eur(r.invested) : '—' }}
+                            </span>
+                            <span
+                                style="flex: 1; text-align: right; font-size: 13.5px; font-weight: 800"
+                                :style="{ color: r.net < 0 ? '#e8544e' : '#20212e' }"
+                                >{{ eurS(r.net) }}</span
+                            >
+                            <span style="width: 64px; text-align: right; font-size: 12.5px; font-weight: 700; color: #0fa3b1"
+                                >{{ num(r.rate) }} %</span
+                            >
+                            <span
+                                style="width: 100px; text-align: right; font-size: 12.5px; font-weight: 700"
+                                :style="{ color: r.delta === null ? '#9a9cab' : r.delta >= 0 ? '#2ba35a' : '#e8544e' }"
+                            >
+                                {{ r.delta === null ? '—' : (r.delta >= 0 ? '▲ ' : '▼ ') + eur(r.delta) }}
+                            </span>
+                        </div>
+                    </div>
+                </Card>
+            </div>
         </div>
 
         <CategoryDetailModal v-if="detailCat" :category-id="detailCat.id" :name="detailCat.name" @close="detailCat = null" />

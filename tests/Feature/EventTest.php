@@ -8,7 +8,6 @@ use App\Models\Category;
 use App\Models\Event;
 use App\Models\Transaction;
 use App\Models\User;
-use App\Services\Ai\FinanceToolkit;
 use App\Services\AnalyticsService;
 use App\Services\EmergencyFundService;
 use App\Services\EventService;
@@ -298,31 +297,5 @@ class EventTest extends TestCase
         ])->assertSessionHasNoErrors();
 
         $this->assertNull($t->fresh()->event_id);
-    }
-
-    public function test_the_assistant_can_look_up_an_event(): void
-    {
-        $event = $this->event();
-        $this->txn(['amount' => 120, 'note' => 'Guinness Storehouse', 'event_id' => $event->id]);
-        $this->txn(['amount' => 30]);
-
-        $toolkit = app(FinanceToolkit::class);
-
-        $list = $toolkit->call($this->user, 'events', []);
-        $this->assertSame(120.0, $list['udalosti'][0]['spolu']);
-
-        $detail = $toolkit->call($this->user, 'events', ['name' => 'dublin']);
-        $this->assertSame(120.0, $detail['spolu']);
-        $this->assertSame('Guinness Storehouse', $detail['najvacsie_polozky'][0]['poznamka']);
-
-        $from = CarbonImmutable::today()->startOfMonth()->toDateString();
-        $to = CarbonImmutable::today()->endOfMonth()->toDateString();
-        $summary = $toolkit->call($this->user, 'spending_summary', ['from' => $from, 'to' => $to]);
-        $this->assertSame(150.0, $summary['vydavky']);
-        $this->assertSame([['udalost' => 'Dovolenka Dublin 2026', 'suma' => 120.0]], $summary['z_toho_udalosti']);
-
-        $only = $toolkit->call($this->user, 'list_transactions', ['from' => $from, 'to' => $to, 'event_name' => 'Dublin']);
-        $this->assertCount(1, $only['transakcie']);
-        $this->assertSame('Dovolenka Dublin 2026', $only['transakcie'][0]['udalost']);
     }
 }

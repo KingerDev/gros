@@ -87,11 +87,6 @@ class User extends Authenticatable
         return $this->hasMany(Goal::class);
     }
 
-    public function chats(): HasMany
-    {
-        return $this->hasMany(Chat::class);
-    }
-
     /**
      * The attributes that should be hidden for serialization.
      *

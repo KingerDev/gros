@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import AddButton from '@/components/gros/AddButton.vue';
-import AskAi from '@/components/gros/AskAi.vue';
 import ExclusionModal from '@/components/gros/ExclusionModal.vue';
 import PeriodSelector from '@/components/gros/PeriodSelector.vue';
 import RefundModal from '@/components/gros/RefundModal.vue';
@@ -851,8 +850,6 @@ function exportCsv() {
                     <template v-else>Žiadne transakcie v tomto období</template>
                 </div>
             </div>
-
-            <AskAi style="margin-top: 14px" :questions="['Aké boli moje najväčšie výdavky tento mesiac?', 'Míňam viac než zvyčajne?']" />
         </div>
 
         <TransactionModal v-if="showModal" :accounts="accounts" :transaction="editTxn" @close="showModal = false" />

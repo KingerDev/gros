@@ -2,13 +2,10 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Transaction;
 use App\Services\AnalyticsService;
 use App\Services\AnomalyDetector;
 use App\Services\FinanceService;
-use App\Services\FinancialProfileService;
 use App\Services\NetWorthService;
-use App\Services\RetirementService;
 use App\Services\SpendingPlanService;
 use App\Support\Period;
 use Illuminate\Http\Request;
@@ -23,8 +20,6 @@ class DashboardController extends Controller
         AnalyticsService $analytics,
         SpendingPlanService $plan,
         NetWorthService $netWorth,
-        FinancialProfileService $profiles,
-        RetirementService $retirement,
         AnomalyDetector $anomalies,
     ): Response {
         $user = $request->user();
@@ -35,34 +30,10 @@ class DashboardController extends Controller
         $portValue = $portfolio['value'];
         $loanOwed = (float) $user->loans()->where('kind', 'owe')->sum('balance');
 
-        // Obdobím riadené: príjmy/výdavky/úspory + kategórie + top výdavky
+        // Obdobím riadené: príjmy/výdavky/úspory, porovnanie s minulým obdobím
         $sum = $analytics->summary($user, $period);
         $prevPeriod = $period->previous();
         $prevSum = $prevPeriod ? $analytics->summary($user, $prevPeriod) : null;
-        $spendCats = $analytics->byCategory($user, $period, 'expense');
-        $topExpenses = $period->apply($user->transactions()->analyzed()->where('type', 'expense'))
-            ->orderByDesc(Transaction::netExpression())
-            ->limit(5)
-            ->get(['category_id', 'amount', 'refunded_amount', 'note'])
-            ->map(fn ($t) => [
-                'category_id' => $t->category_id,
-                'note' => $t->note,
-                'amount' => $t->net_amount,
-            ]);
-
-        // Investičné pozície
-        $holdings = $user->investments()->get()->map(fn ($i) => [
-            'ticker' => $i->ticker,
-            'name' => $i->name,
-            'value' => $i->value,
-            'color' => $i->color,
-        ]);
-
-        // Zloženie majetku
-        $assetParts = collect([
-            ['name' => 'Hotovosť a účty', 'value' => $cash, 'color' => '#4c8dff'],
-            ['name' => 'Investície', 'value' => $portValue, 'color' => '#9775fa'],
-        ])->filter(fn ($p) => $p['value'] > 0)->values();
 
         // Rozpočty: 4 najviac čerpané (podiel spent/limit)
         $budgets = $finance->budgetProgress($user)
@@ -93,19 +64,9 @@ class DashboardController extends Controller
             'reserve' => $finance->reserve($user),
             // nezvyčajné výdavky — čisto štatisticky, bez AI
             'anomalies' => $anomalies->recent($user),
-            'aiConfigured' => (bool) config('services.openai.key'),
-            'savingsRate' => $profiles->savingsRateReport(
-                $user,
-                $retirement->realReturnAssumption($user),
-                (float) ($user->retire_withdrawal ?? 4)
-            ),
             'insights' => array_slice($analytics->insights($user, $period), 0, 2),
             'portfolio' => $portfolio,
-            'spendCats' => $spendCats,
             'upcoming' => $finance->upcomingPayments($user, 30),
-            'holdings' => $holdings,
-            'assetParts' => $assetParts,
-            'topExpenses' => $topExpenses,
             'budgets' => $budgets,
             'goals' => $user->goals()->orderBy('created_at')->get()->map(fn ($g) => [
                 'id' => $g->id,
@@ -115,7 +76,6 @@ class DashboardController extends Controller
                 'color' => $g->color,
                 'deadline' => $g->deadline?->toDateString(),
             ]),
-            'history' => $finance->monthlyHistory($user, 6),
             'loanOwed' => $loanOwed,
             'plan' => $plan->current($user),
         ]);

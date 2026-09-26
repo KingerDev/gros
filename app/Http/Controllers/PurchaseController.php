@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Services\EmergencyFundService;
 use App\Services\FinancialProfileService;
+use App\Services\OpportunityCostService;
 use App\Services\PortfolioAnalyticsService;
 use App\Services\RetirementService;
 use Illuminate\Http\JsonResponse;
@@ -25,6 +26,7 @@ class PurchaseController extends Controller
         protected PortfolioAnalyticsService $portfolio,
         protected EmergencyFundService $reserve,
         protected RetirementService $retirement,
+        protected OpportunityCostService $cost,
     ) {}
 
     public function index(Request $request): Response
@@ -39,6 +41,11 @@ class PurchaseController extends Controller
                 'monthly_income' => (float) ($profile['measured']['income'] ?? 0),
                 'monthly_surplus' => (float) ($profile['measured']['recurring_savings'] ?? 0),
                 'monthly_contribution' => (float) ($this->portfolio->investmentContributions($user)['recommended'] ?? 0),
+            ],
+            // to isté pre výdavky, ktoré už robíš: čo stojí každá kategória do dôchodku
+            'opportunityCost' => [
+                'context' => $this->cost->context($user),
+                'categories' => $this->cost->categories($user, 12, 6),
             ],
         ]);
     }

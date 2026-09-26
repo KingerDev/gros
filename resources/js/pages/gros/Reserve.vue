@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import AskAi from '@/components/gros/AskAi.vue';
 import Card from '@/components/gros/Card.vue';
 import { useGros } from '@/composables/useGros';
 import GrosLayout from '@/layouts/GrosLayout.vue';
@@ -775,8 +774,6 @@ const inputStyle =
                     ktoré si vieš posunúť vlastným počtom mesiacov.
                 </div>
             </Card>
-
-            <AskAi style="margin-top: 14px" :questions="['Mám dosť veľkú rezervu?', 'Ako rýchlo si viem rezervu doplniť?']" />
         </div>
     </GrosLayout>
 </template>

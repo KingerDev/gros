@@ -24,7 +24,11 @@ interface Result {
     context: { income_share: number | null; income_days: number | null; surplus_months: number | null };
 }
 
-defineProps<{
+const props = defineProps<{
+    opportunityCost: {
+        context: { years: number; retire_year: number; real_return: number };
+        categories: { category_id: number; monthly: number; lifetime: number }[];
+    };
     context: {
         real_return: number;
         retire_year: number;
@@ -34,7 +38,11 @@ defineProps<{
     };
 }>();
 
-const { eur, num, grad, primary, primarySoft } = useGros();
+const { eur, num, grad, primary, primarySoft, catName, catColor, catGlyph, hexToRgba } = useGros();
+
+// Tá istá otázka pre výdavky, ktoré už robíš — priemer kategórií za 12 mesiacov
+const ocCategories = computed(() => props.opportunityCost?.categories ?? []);
+const ocMax = computed(() => Math.max(1, ...ocCategories.value.map((c) => c.lifetime)));
 
 const amount = ref<number | null>(null);
 const recurring = ref(false);
@@ -197,6 +205,52 @@ const presets = [50, 100, 300, 500, 1000, 2000];
                     </div>
                 </Card>
             </template>
+
+            <!-- ── Výdavky, ktoré už robíš ───────────────────────────────── -->
+            <div v-if="ocCategories.length" style="margin-top: 14px">
+                <Card :title="`Čo ťa bežné výdavky stoja do roku ${opportunityCost.context.retire_year}`">
+                    <template #right>
+                        <span style="font-size: 12px; font-weight: 600; color: #9a9cab">priemer za 12 mesiacov</span>
+                    </template>
+
+                    <div style="font-size: 12.5px; color: #8a8c9a; font-weight: 600; line-height: 1.6; margin-top: 10px">
+                        Nie koľko minieš, ale čím by tie peniaze boli, keby šli do portfólia. Všetko v dnešných eurách, pri reálnom výnose
+                        {{ num(opportunityCost.context.real_return, 1) }} % ročne po inflácii.
+                    </div>
+
+                    <div style="display: flex; flex-direction: column; gap: 12px; margin-top: 18px">
+                        <div v-for="c in ocCategories" :key="c.category_id">
+                            <div style="display: flex; align-items: center; gap: 9px; font-size: 13px; font-weight: 700">
+                                <span
+                                    style="
+                                        width: 26px;
+                                        height: 26px;
+                                        border-radius: 9px;
+                                        display: flex;
+                                        align-items: center;
+                                        justify-content: center;
+                                        font-size: 13px;
+                                        flex-shrink: 0;
+                                    "
+                                    :style="{ background: hexToRgba(catColor(c.category_id), 0.16) }"
+                                    >{{ catGlyph(c.category_id) }}</span
+                                >
+                                <span style="flex: 1; min-width: 0">{{ catName(c.category_id) }}</span>
+                                <span style="color: #9a9cab; font-weight: 600; font-size: 12px">{{ eur(c.monthly) }}/mes.</span>
+                                <span class="font-display" style="font-weight: 800; font-size: 15px; min-width: 92px; text-align: right">{{
+                                    eur(c.lifetime)
+                                }}</span>
+                            </div>
+                            <div style="height: 7px; border-radius: 4px; background: #f5f4ef; overflow: hidden; margin-top: 6px; margin-left: 35px">
+                                <div
+                                    style="height: 100%; border-radius: 4px"
+                                    :style="{ width: (c.lifetime / ocMax) * 100 + '%', background: catColor(c.category_id) }"
+                                ></div>
+                            </div>
+                        </div>
+                    </div>
+                </Card>
+            </div>
 
             <!-- ── Ako to čítať ────────────────────────────────────────── -->
             <Card title="Ako to čítať" style="margin-top: 14px">
