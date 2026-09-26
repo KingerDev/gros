@@ -56,6 +56,7 @@ class InvestmentController extends Controller
                 'current_price' => (float) $i->current_price,
                 'last_price_at' => $i->last_price_at?->toIso8601String(),
                 'color' => $i->color,
+                'contributing' => (bool) $i->contributing,
                 'value' => $i->value,
                 'cost' => $i->cost,
                 'gain' => $i->gain,
