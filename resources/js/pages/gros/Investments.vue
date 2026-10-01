@@ -41,7 +41,7 @@ const props = defineProps<{
     totals: { value: number; cost: number; gain: number; pct: number };
 }>();
 
-const { eur, num, fmtUnits, grad, primary, primarySoft, kindLabel, hexToRgba } = useGros();
+const { eur, num, fmtUnits, grad, primary, primarySoft, kindLabel, hexToRgba, formatDate } = useGros();
 
 const showNew = ref(false);
 const editInvestment = ref<Investment | null>(null);
@@ -230,6 +230,49 @@ function openEdit() {
         editInvestment.value = detail.value;
         detailId.value = null;
     }
+}
+function csvEsc(v: string): string {
+    const s = String(v ?? '');
+    return /[",;\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+function dec(n: number, digits = 2): string {
+    return Number(n).toFixed(digits).replace('.', ',');
+}
+/** Všetky nákupy a predaje naprieč pozíciami, od najnovších. */
+function exportCsv() {
+    const head = ['Dátum', 'Typ', 'Ticker', 'Názov', 'Druh', 'Kusy', 'Cena za kus (EUR)', 'Suma (EUR)', 'Poznámka'];
+    const rows = props.investments.flatMap((i) => i.lots.map((l) => ({ i, l }))).sort((a, b) => b.l.date.localeCompare(a.l.date) || b.l.id - a.l.id);
+    const lines = [head.join(';')];
+    rows.forEach(({ i, l }) => {
+        const sell = l.type === 'sell';
+        lines.push(
+            [
+                formatDate(l.date),
+                sell ? 'Predaj' : 'Nákup',
+                i.ticker,
+                i.name,
+                kindLabel(i.kind),
+                dec(l.units, 8).replace(/,?0+$/, ''),
+                dec(l.price, 4),
+                (sell ? '' : '-') + dec(l.units * l.price),
+                l.note ?? '',
+            ]
+                .map(csvEsc)
+                .join(';'),
+        );
+    });
+    const csv = '\ufeff' + lines.join('\r\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `gros-investicie-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }, 100);
 }
 </script>
 
@@ -648,27 +691,62 @@ function openEdit() {
 
             <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 22px 2px 12px">
                 <div class="font-display" style="font-weight: 700; font-size: 17px">Tvoje pozície</div>
-                <button
-                    type="button"
-                    style="
-                        display: flex;
-                        align-items: center;
-                        gap: 6px;
-                        color: #fff;
-                        font-weight: 700;
-                        font-size: 13px;
-                        padding: 9px 14px;
-                        border-radius: 11px;
-                        white-space: nowrap;
-                    "
-                    :style="{ background: primary, boxShadow: `0 6px 14px ${primarySoft}` }"
-                    @click="showNew = true"
-                >
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round">
-                        <path d="M12 5v14M5 12h14" />
-                    </svg>
-                    Pridať investíciu
-                </button>
+                <div style="display: flex; align-items: center; gap: 8px">
+                    <button
+                        v-if="investments.length"
+                        type="button"
+                        style="
+                            display: flex;
+                            align-items: center;
+                            gap: 7px;
+                            background: #fff;
+                            color: #20212e;
+                            font-weight: 700;
+                            font-size: 13px;
+                            padding: 9px 14px;
+                            border-radius: 11px;
+                            box-shadow: 0 2px 8px rgba(60, 55, 40, 0.06);
+                            white-space: nowrap;
+                        "
+                        @click="exportCsv"
+                    >
+                        <svg
+                            width="15"
+                            height="15"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2.2"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                        >
+                            <path d="M12 3v12M8 11l4 4 4-4" />
+                            <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
+                        </svg>
+                        Export CSV
+                    </button>
+                    <button
+                        type="button"
+                        style="
+                            display: flex;
+                            align-items: center;
+                            gap: 6px;
+                            color: #fff;
+                            font-weight: 700;
+                            font-size: 13px;
+                            padding: 9px 14px;
+                            border-radius: 11px;
+                            white-space: nowrap;
+                        "
+                        :style="{ background: primary, boxShadow: `0 6px 14px ${primarySoft}` }"
+                        @click="showNew = true"
+                    >
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round">
+                            <path d="M12 5v14M5 12h14" />
+                        </svg>
+                        Pridať investíciu
+                    </button>
+                </div>
             </div>
 
             <div style="background: #fff; border-radius: 20px; padding: 10px; box-shadow: 0 4px 18px rgba(60, 55, 40, 0.05)">
