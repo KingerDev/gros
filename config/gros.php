@@ -23,45 +23,19 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Referenčné dáta pre odhad života po škole
+    | Priemerná mzda — východisko pre príjem v budúcnosti
     |--------------------------------------------------------------------------
-    | Slúžia len ako východisko, keď používateľ nemá vlastný odhad. Sú to
-    | verejné štatistiky, nie predpoveď — preto je pri nich uvedený zdroj
-    | aj dátum, nech je zrejmé, kedy prestali byť aktuálne.
+    | Hrubá mzda je oficiálny údaj. Čistá je odhad: odvody zamestnanca 14,4 %,
+    | daň 19 % zo základu po nezdaniteľnej časti 497,23 €/mes. (21 × životné
+    | minimum 284,13 €). Ten istý postup dáva pri minimálnej mzde 915 € presne
+    | 728,90 € čistého, ako uvádza zdroj. Bez daňového bonusu a iných úľav.
     */
-    'reference' => [
-        'rent' => [
-            'source' => 'Deloitte Rent Index Q1 2026',
-            'url' => 'https://www.deloitte.com/cz-sk/sk/Industries/real-estate/collections/rent-index.html',
-            'as_of' => '2026-Q1',
-            // priemerná ponuková cena za byt (EUR/mesiac)
-            'sr_average' => 736,
-            'by_size' => [
-                '1' => ['label' => '1-izbový', 'rent' => 468],
-                '2' => ['label' => '2-izbový', 'rent' => 655],
-                '3' => ['label' => '3-izbový', 'rent' => 858],
-            ],
-            'by_city' => [
-                'bratislava' => ['label' => 'Bratislava', 'rent' => 948],
-                'kosice' => ['label' => 'Košice', 'rent' => 736],
-                'nitra' => ['label' => 'Nitra', 'rent' => 664],
-                'presov' => ['label' => 'Prešov', 'rent' => 650],
-                'trnava' => ['label' => 'Trnava', 'rent' => 629],
-                'banska_bystrica' => ['label' => 'Banská Bystrica', 'rent' => 597],
-                'poprad' => ['label' => 'Poprad', 'rent' => 580],
-            ],
-        ],
-        'graduate_income' => [
-            'source' => 'Trendy práce / ISP — uplatnenie absolventov',
-            'url' => 'https://www.trendyprace.sk/sk/absolventi/sk-trendy/mzda',
-            // hrubé mesačné mzdy; čistá mzda je zhruba 78 % z hrubej
-            'gross' => [
-                'bachelor' => 1_299,
-                'master' => 1_418,
-                'experienced' => 1_536,
-            ],
-            'net_ratio' => 0.78,
-        ],
+    'average_wage' => [
+        'year' => 2025,
+        'gross' => 1_620,
+        'net_estimate' => 1_218,
+        'source' => 'ŠÚ SR — priemerná nominálna mesačná mzda za rok 2025 (zverejnené 3. 3. 2026)',
+        'url' => 'https://www.podnikajte.sk/zamestnanci-a-hr/priemerna-mesacna-mzda-2025-vyska-dosledky',
     ],
 
     // Default strom kategórií pre nového používateľa.
@@ -160,7 +134,8 @@ return [
             ['name' => 'Vratky (daň, nákup)', 'icon' => '↩️'],
             ['name' => 'Lotéria, výhry', 'icon' => '🎲'],
             ['name' => 'Šeky, kupóny', 'icon' => '🎟️'],
-            ['name' => 'Pôžičky, prenájom', 'icon' => '📥'],
+            // prijatá či vrátená pôžička nie je príjem — len presun peňazí
+            ['name' => 'Pôžičky, prenájom', 'icon' => '📥', 'is_savings' => true],
             ['name' => 'Príspevky a granty', 'icon' => '✅'],
             ['name' => 'Príjem z prenájmu', 'icon' => '🏠'],
             ['name' => 'Predaj', 'icon' => '🏷️'],

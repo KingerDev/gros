@@ -8,41 +8,26 @@ import { computed, ref, watch } from 'vue';
 interface Horizon {
     years: number;
     year: number;
-    value: number;
+    low: number;
+    mid: number;
+    high: number;
 }
 interface Result {
     ok: boolean;
-    purchase: {
-        amount: number;
-        recurring: boolean;
-        horizons: Horizon[];
-        freedom_if_saved: number | null;
-        freedom_if_spent: number | null;
-        delay_years: number | null;
-    } | null;
-    engine: { label: string; real_cagr: number } | null;
+    purchase: { amount: number; recurring: boolean; horizons: Horizon[] } | null;
     context: { income_share: number | null; income_days: number | null; surplus_months: number | null };
 }
 
-const props = defineProps<{
-    opportunityCost: {
-        context: { years: number; retire_year: number; real_return: number };
-        categories: { category_id: number; monthly: number; lifetime: number }[];
-    };
+defineProps<{
     context: {
-        real_return: number;
+        scenarios: Record<'low' | 'mid' | 'high', { label: string; return: number }>;
         retire_year: number;
         monthly_income: number;
         monthly_surplus: number;
-        monthly_contribution: number;
     };
 }>();
 
-const { eur, num, grad, primary, primarySoft, catName, catColor, catGlyph, hexToRgba } = useGros();
-
-// Tá istá otázka pre výdavky, ktoré už robíš — priemer kategórií za 12 mesiacov
-const ocCategories = computed(() => props.opportunityCost?.categories ?? []);
-const ocMax = computed(() => Math.max(1, ...ocCategories.value.map((c) => c.lifetime)));
+const { eur, num, grad, primary, primarySoft } = useGros();
 
 const amount = ref<number | null>(null);
 const recurring = ref(false);
@@ -87,13 +72,11 @@ const presets = [50, 100, 300, 500, 1000, 2000];
 
 <template>
     <Head title="Oplatí sa?" />
-    <GrosLayout title="Oplatí sa?" subtitle="Koľko ťa nákup naozaj stojí — v eurách aj v čase">
+    <GrosLayout title="Oplatí sa?" subtitle="Čím by tá suma bola, keby išla do portfólia">
         <div class="gros-rise">
             <!-- ── Vstup ───────────────────────────────────────────────── -->
             <Card>
-                <label style="font-size: 12px; font-weight: 700; color: #8a8c9a; display: block; margin-bottom: 8px">
-                    Koľko to stojí?
-                </label>
+                <label style="font-size: 12px; font-weight: 700; color: #8a8c9a; display: block; margin-bottom: 8px"> Koľko to stojí? </label>
                 <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap">
                     <input
                         v-model.number="amount"
@@ -103,15 +86,34 @@ const presets = [50, 100, 300, 500, 1000, 2000];
                         placeholder="0"
                         autofocus
                         class="font-display"
-                        style="flex: 1; min-width: 180px; background: #f7f6f2; border: 1.5px solid #eceae2; border-radius: 14px; padding: 16px 18px; font-size: 30px; font-weight: 800; letter-spacing: -1px; color: #20212e; outline: none"
+                        style="
+                            flex: 1;
+                            min-width: 180px;
+                            background: #f7f6f2;
+                            border: 1.5px solid #eceae2;
+                            border-radius: 14px;
+                            padding: 16px 18px;
+                            font-size: 30px;
+                            font-weight: 800;
+                            letter-spacing: -1px;
+                            color: #20212e;
+                            outline: none;
+                        "
                     />
                     <div style="display: flex; background: #f7f6f2; border-radius: 12px; padding: 3px">
                         <button
-                            v-for="opt in [{ k: false, l: 'Jednorazovo' }, { k: true, l: 'Mesačne' }]"
+                            v-for="opt in [
+                                { k: false, l: 'Jednorazovo' },
+                                { k: true, l: 'Mesačne' },
+                            ]"
                             :key="String(opt.k)"
                             type="button"
                             style="font-size: 13px; font-weight: 700; padding: 10px 15px; border-radius: 10px; white-space: nowrap"
-                            :style="recurring === opt.k ? { background: '#fff', color: '#20212e', boxShadow: '0 2px 6px rgba(60,55,40,0.08)' } : { color: '#9a9cab' }"
+                            :style="
+                                recurring === opt.k
+                                    ? { background: '#fff', color: '#20212e', boxShadow: '0 2px 6px rgba(60,55,40,0.08)' }
+                                    : { color: '#9a9cab' }
+                            "
                             @click="recurring = opt.k"
                         >
                             {{ opt.l }}
@@ -144,25 +146,28 @@ const presets = [50, 100, 300, 500, 1000, 2000];
                         <template v-else>{{ eur(amount) }} by do roku {{ headline.year }} bolo</template>
                     </div>
                     <div class="font-display" style="font-weight: 800; font-size: 40px; letter-spacing: -1.6px; margin-top: 6px">
-                        {{ eur(headline.value) }}
+                        {{ eur(headline.low) }} – {{ eur(headline.high) }}
                     </div>
                     <div style="font-size: 13px; font-weight: 600; opacity: 0.9; margin-top: 4px">
-                        v dnešných eurách, pri reálnom výnose {{ num(context.real_return, 1) }} % ročne po inflácii
-                    </div>
-
-                    <div
-                        v-if="purchase?.delay_years !== null && purchase?.delay_years !== undefined && purchase.delay_years > 0"
-                        style="display: flex; align-items: center; gap: 10px; background: rgba(255, 255, 255, 0.16); border-radius: 13px; padding: 13px 16px; margin-top: 18px"
-                    >
-                        <span style="font-size: 18px">⏳</span>
-                        <span style="font-size: 13.5px; font-weight: 700; line-height: 1.5">
-                            Sloboda by prišla o {{ purchase.delay_years }} {{ purchase.delay_years === 1 ? 'rok' : purchase.delay_years < 5 ? 'roky' : 'rokov' }} neskôr —
-                            {{ purchase.freedom_if_spent }} namiesto {{ purchase.freedom_if_saved }}.
-                        </span>
+                        v dnešných eurách, pri {{ num(context.scenarios.low.return, 0) }} až {{ num(context.scenarios.high.return, 0) }} % ročne po
+                        inflácii · pri {{ num(context.scenarios.mid.return, 0) }} % {{ eur(headline.mid) }}
                     </div>
                 </div>
 
-                <div v-else-if="loading" style="background: #fff; border-radius: 20px; padding: 40px; text-align: center; color: #b0b2bd; font-weight: 600; font-size: 14px; margin-top: 14px; box-shadow: 0 4px 18px rgba(60, 55, 40, 0.05)">
+                <div
+                    v-else-if="loading"
+                    style="
+                        background: #fff;
+                        border-radius: 20px;
+                        padding: 40px;
+                        text-align: center;
+                        color: #b0b2bd;
+                        font-weight: 600;
+                        font-size: 14px;
+                        margin-top: 14px;
+                        box-shadow: 0 4px 18px rgba(60, 55, 40, 0.05);
+                    "
+                >
                     Počítam…
                 </div>
 
@@ -172,12 +177,27 @@ const presets = [50, 100, 300, 500, 1000, 2000];
                         <div
                             v-for="h in purchase.horizons"
                             :key="h.years"
-                            style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap; background: #f7f6f2; border-radius: 13px; padding: 13px 16px"
+                            style="
+                                display: flex;
+                                align-items: center;
+                                gap: 12px;
+                                flex-wrap: wrap;
+                                background: #f7f6f2;
+                                border-radius: 13px;
+                                padding: 13px 16px;
+                            "
                         >
                             <span style="font-size: 13px; font-weight: 800; min-width: 74px">{{ h.years }} rokov</span>
                             <span style="font-size: 11.5px; font-weight: 600; color: #9a9cab">do {{ h.year }}</span>
-                            <span class="font-display" style="margin-left: auto; font-weight: 800; font-size: 18px" :style="{ color: primary }">
-                                {{ eur(h.value) }}
+                            <span style="margin-left: auto; font-size: 12px; font-weight: 600; color: #9a9cab">
+                                {{ eur(h.low) }} – {{ eur(h.high) }}
+                            </span>
+                            <span
+                                class="font-display"
+                                style="font-weight: 800; font-size: 18px; min-width: 96px; text-align: right"
+                                :style="{ color: primary }"
+                            >
+                                {{ eur(h.mid) }}
                             </span>
                         </div>
                     </div>
@@ -188,83 +208,40 @@ const presets = [50, 100, 300, 500, 1000, 2000];
                     <div style="display: flex; flex-wrap: wrap; gap: 26px; margin-top: 16px">
                         <div v-if="result.context.income_days !== null">
                             <div style="font-size: 11.5px; font-weight: 700; color: #8a8c9a">Dní tvojho príjmu</div>
-                            <div class="font-display" style="font-weight: 800; font-size: 24px; margin-top: 3px">{{ num(result.context.income_days, 1) }}</div>
+                            <div class="font-display" style="font-weight: 800; font-size: 24px; margin-top: 3px">
+                                {{ num(result.context.income_days, 1) }}
+                            </div>
                         </div>
                         <div v-if="result.context.income_share !== null">
                             <div style="font-size: 11.5px; font-weight: 700; color: #8a8c9a">Z mesačného príjmu</div>
-                            <div class="font-display" style="font-weight: 800; font-size: 24px; margin-top: 3px">{{ num(result.context.income_share, 0) }} %</div>
+                            <div class="font-display" style="font-weight: 800; font-size: 24px; margin-top: 3px">
+                                {{ num(result.context.income_share, 0) }} %
+                            </div>
                         </div>
                         <div v-if="result.context.surplus_months !== null">
                             <div style="font-size: 11.5px; font-weight: 700; color: #8a8c9a">Mesiacov tvojho prebytku</div>
-                            <div class="font-display" style="font-weight: 800; font-size: 24px; margin-top: 3px">{{ num(result.context.surplus_months, 1) }}</div>
+                            <div class="font-display" style="font-weight: 800; font-size: 24px; margin-top: 3px">
+                                {{ num(result.context.surplus_months, 1) }}
+                            </div>
                         </div>
                     </div>
                     <div style="font-size: 11.5px; color: #9a9cab; font-weight: 600; line-height: 1.6; margin-top: 14px">
-                        Merané z tvojich transakcií: príjem {{ eur(context.monthly_income) }}/mes., po bežných výdavkoch ti ostáva
+                        Merané z tvojich transakcií: príjem {{ eur(context.monthly_income) }}/mes., po spotrebe ti ostáva
                         {{ eur(context.monthly_surplus) }}.
                     </div>
                 </Card>
             </template>
 
-            <!-- ── Výdavky, ktoré už robíš ───────────────────────────────── -->
-            <div v-if="ocCategories.length" style="margin-top: 14px">
-                <Card :title="`Čo ťa bežné výdavky stoja do roku ${opportunityCost.context.retire_year}`">
-                    <template #right>
-                        <span style="font-size: 12px; font-weight: 600; color: #9a9cab">priemer za 12 mesiacov</span>
-                    </template>
-
-                    <div style="font-size: 12.5px; color: #8a8c9a; font-weight: 600; line-height: 1.6; margin-top: 10px">
-                        Nie koľko minieš, ale čím by tie peniaze boli, keby šli do portfólia. Všetko v dnešných eurách, pri reálnom výnose
-                        {{ num(opportunityCost.context.real_return, 1) }} % ročne po inflácii.
-                    </div>
-
-                    <div style="display: flex; flex-direction: column; gap: 12px; margin-top: 18px">
-                        <div v-for="c in ocCategories" :key="c.category_id">
-                            <div style="display: flex; align-items: center; gap: 9px; font-size: 13px; font-weight: 700">
-                                <span
-                                    style="
-                                        width: 26px;
-                                        height: 26px;
-                                        border-radius: 9px;
-                                        display: flex;
-                                        align-items: center;
-                                        justify-content: center;
-                                        font-size: 13px;
-                                        flex-shrink: 0;
-                                    "
-                                    :style="{ background: hexToRgba(catColor(c.category_id), 0.16) }"
-                                    >{{ catGlyph(c.category_id) }}</span
-                                >
-                                <span style="flex: 1; min-width: 0">{{ catName(c.category_id) }}</span>
-                                <span style="color: #9a9cab; font-weight: 600; font-size: 12px">{{ eur(c.monthly) }}/mes.</span>
-                                <span class="font-display" style="font-weight: 800; font-size: 15px; min-width: 92px; text-align: right">{{
-                                    eur(c.lifetime)
-                                }}</span>
-                            </div>
-                            <div style="height: 7px; border-radius: 4px; background: #f5f4ef; overflow: hidden; margin-top: 6px; margin-left: 35px">
-                                <div
-                                    style="height: 100%; border-radius: 4px"
-                                    :style="{ width: (c.lifetime / ocMax) * 100 + '%', background: catColor(c.category_id) }"
-                                ></div>
-                            </div>
-                        </div>
-                    </div>
-                </Card>
-            </div>
-
             <!-- ── Ako to čítať ────────────────────────────────────────── -->
             <Card title="Ako to čítať" style="margin-top: 14px">
                 <div style="font-size: 12.5px; color: #6a6c7a; font-weight: 600; line-height: 1.7; margin-top: 12px">
-                    Toto nemá od nákupu odhovárať. Väčšina vecí, ktoré si kúpiš, za to stojí — a peniaze, ktoré nikdy neminieš, sú na nič.
-                    Zmyslom je vidieť cenu aj v druhej mene: <b>v čase</b>. Keď to potom aj tak kúpiš, vieš, že to naozaj chceš.
-                    <br /><br />
-                    Suma sa počíta z tej istej projekcie ako
-                    <Link href="/retirement" style="font-weight: 800; text-decoration: underline; color: #6a6c7a">tvoj dôchodkový plán</Link> — teda
-                    z reálnych historických výnosov, po odrátaní inflácie, poplatkov aj konzervatívnej zrážky. Nie je to zložené úročenie
-                    na papieri, ale posun v tvojom vlastnom pláne.
-                    <br /><br />
-                    <b>Jednorazovo</b> zníži sumu, ktorú máš dnes v portfóliu. <b>Mesačne</b> zníži to, čo doň každý mesiac posielaš — preto
-                    vyjde násobne drahšie, aj keď suma vyzerá malá.
+                    Toto nemá od nákupu odhovárať. Väčšina vecí, ktoré si kúpiš, za to stojí — a peniaze, ktoré nikdy neminieš, sú na nič. Zmyslom je
+                    vidieť cenu aj v druhej mene: <b>v čase</b>. Keď to potom aj tak kúpiš, vieš, že to naozaj chceš. <br /><br />
+                    Počíta sa s tými istými tromi predpokladmi ako
+                    <Link href="/retirement" style="font-weight: 800; text-decoration: underline; color: #6a6c7a">tvoj dôchodkový plán</Link>: 3, 5 a
+                    7 % ročne po inflácii aj poplatkoch. Je to zložené úročenie, nie predpoveď — trh môže priniesť menej aj viac. <br /><br />
+                    <b>Mesačne</b> vyjde násobne drahšie než jednorazovo, aj keď suma vyzerá malá. Ale pamätaj, že za ten výdavok aj niečo dostávaš —
+                    toto číslo ukazuje len jednu stranu.
                 </div>
             </Card>
         </div>

@@ -30,6 +30,9 @@ class User extends Authenticatable
         'monthly_income',
         'savings_goal',
         'retire_year',
+        'retire_birth_year',
+        'retire_contribution',
+        'retire_crypto_mode',
         'retire_duration',
         'retire_monthly',
         'retire_index_contributions',
@@ -40,6 +43,7 @@ class User extends Authenticatable
         'retire_engine',
         'retire_target_income',
         'retire_spending',
+        'retire_housing',
         'reserve_profile',
     ];
 
@@ -113,6 +117,8 @@ class User extends Authenticatable
             'monthly_income' => 'decimal:2',
             'savings_goal' => 'decimal:2',
             'retire_year' => 'integer',
+            'retire_birth_year' => 'integer',
+            'retire_contribution' => 'array',
             'retire_duration' => 'integer',
             'retire_monthly' => 'decimal:2',
             'retire_index_contributions' => 'boolean',
@@ -122,6 +128,7 @@ class User extends Authenticatable
             'retire_withdrawal' => 'decimal:2',
             'retire_target_income' => 'decimal:2',
             'retire_spending' => 'decimal:2',
+            'retire_housing' => 'decimal:2',
             'reserve_profile' => 'array',
         ];
     }

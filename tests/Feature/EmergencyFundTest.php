@@ -14,8 +14,8 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
 /**
- * Núdzový fond: odporúčanie musí vychádzať z nameraných dát a hýbať sa,
- * keď sa hýbu príjmy a výdavky.
+ * Núdzový fond: nevyhnutné výdavky sa merajú z transakcií, počet mesiacov
+ * si volí používateľ.
  */
 class EmergencyFundTest extends TestCase
 {
@@ -129,69 +129,27 @@ class EmergencyFundTest extends TestCase
         $this->assertSame(200.0, $expenses['essential']);
     }
 
-    public function test_risk_factors_add_up_into_the_recommended_months(): void
+    public function test_the_target_is_essential_spending_times_the_chosen_months(): void
     {
-        $fund = app(EmergencyFundService::class);
-        $steady = ['months' => 12, 'average' => 2_000.0, 'volatility' => 5.0, 'is_volatile' => false, 'worst' => 1_900.0];
-        $expenses = ['essential_share' => 50.0];
+        $this->monthly('Nájom', 1_000);
 
-        // stabilný zamestnanec, sám, s nárokom na dávku → 3 + 0 + 0 − 1 = 2, orezané na 3
-        $employee = $fund->recommendMonths(
-            ['income_type' => 'stable', 'household' => 'single', 'unemployment_benefit' => true, 'health_risk' => false, 'months_override' => null],
-            $expenses,
-            $steady
-        );
-        $this->assertSame(3, $employee['recommended']);
-        $this->assertTrue($employee['clamped']);
+        $default = app(EmergencyFundService::class)->forUser($this->user->fresh());
+        $this->assertSame(3.0, $default['months']);
+        $this->assertSame(3_000.0, $default['target']);
 
-        // SZČO so závislými osobami a bez dávky → 3 + 3 + 2 + 1 = 9
-        $freelancer = $fund->recommendMonths(
-            ['income_type' => 'self_employed', 'household' => 'dependents', 'unemployment_benefit' => false, 'health_risk' => false, 'months_override' => null],
-            $expenses,
-            $steady
-        );
-        $this->assertSame(9, $freelancer['recommended']);
+        $this->user->update(['reserve_profile' => ['months' => 6]]);
+        $six = app(EmergencyFundService::class)->forUser($this->user->fresh());
+        $this->assertSame(6_000.0, $six['target']);
     }
 
-    public function test_measured_income_volatility_raises_the_recommendation(): void
-    {
-        $fund = app(EmergencyFundService::class);
-        $profile = ['income_type' => 'stable', 'household' => 'dual_income', 'unemployment_benefit' => false, 'health_risk' => false, 'months_override' => null];
-        $expenses = ['essential_share' => 50.0];
-
-        $steady = $fund->recommendMonths($profile, $expenses, ['is_volatile' => false, 'volatility' => 4.0]);
-        $jumpy = $fund->recommendMonths($profile, $expenses, ['is_volatile' => true, 'volatility' => 60.0]);
-
-        $this->assertSame($steady['raw'] + 1, $jumpy['raw']);
-    }
-
-    public function test_volatility_is_measured_from_real_income(): void
-    {
-        // striedavo 500 a 2 500 € — silne kolísavý príjem
-        for ($i = 1; $i <= 12; $i++) {
-            Transaction::create([
-                'user_id' => $this->user->id, 'account_id' => $this->account->id, 'type' => 'income',
-                'amount' => $i % 2 === 0 ? 2_500 : 500,
-                'date' => CarbonImmutable::today()->subMonthsNoOverflow($i)->startOfMonth()->addDays(5)->toDateString(),
-            ]);
-        }
-
-        $income = app(EmergencyFundService::class)->incomeStats($this->user);
-
-        $this->assertSame(1_500.0, $income['average']);
-        $this->assertTrue($income['is_volatile']);
-        $this->assertGreaterThan(50, $income['volatility']);
-    }
-
-    public function test_a_months_override_wins_over_the_recommendation(): void
+    public function test_an_older_months_override_is_still_honoured(): void
     {
         $this->monthly('Nájom', 1_000);
         $this->user->update(['reserve_profile' => ['months_override' => 8]]);
 
         $report = app(EmergencyFundService::class)->forUser($this->user->fresh());
 
-        $this->assertSame(8.0, $report['months']['months']);
-        $this->assertTrue($report['months']['overridden']);
+        $this->assertSame(8.0, $report['months']);
         $this->assertSame(8_000.0, $report['target']);
     }
 
@@ -199,15 +157,28 @@ class EmergencyFundTest extends TestCase
     {
         $this->monthly('Nájom', 1_000);
         $this->account->update(['balance' => 3_500]);
+        $this->user->update(['reserve_profile' => ['months' => 4, 'source' => 'all_cash']]);
 
         $report = app(EmergencyFundService::class)->forUser($this->user->fresh());
 
         $milestones = collect($report['milestones'])->keyBy('key');
         $this->assertTrue($milestones['buffer']['reached']);   // 1 000 €
-        $this->assertTrue($milestones['base']['reached']);     // 3 000 €
         $this->assertFalse($milestones['target']['reached']);  // 4 mes. = 4 000 €
         $this->assertSame(500.0, $milestones['target']['missing']);
         $this->assertSame(3.5, $report['covered_months']);
+    }
+
+    public function test_by_default_this_months_spending_is_not_counted_as_reserve(): void
+    {
+        $this->monthly('Nájom', 600);
+        $this->monthly('Reštaurácia, fast-food', 200);
+        $this->account->update(['balance' => 5_000]);
+
+        $report = app(EmergencyFundService::class)->forUser($this->user->fresh());
+
+        // 5 000 € na účte mínus 800 € bežných výdavkov tohto mesiaca
+        $this->assertSame('cash_minus_month', $report['profile']['source']);
+        $this->assertSame(4_200.0, $report['held']);
     }
 
     public function test_the_reserve_can_be_tied_to_a_single_account(): void
@@ -223,23 +194,6 @@ class EmergencyFundTest extends TestCase
         $report = app(EmergencyFundService::class)->forUser($this->user->fresh());
 
         $this->assertSame(1_200.0, $report['held']);
-    }
-
-    public function test_the_fill_plan_splits_the_monthly_surplus(): void
-    {
-        $this->monthly('Nájom', 1_000);
-        $this->monthly('mzda', 2_000, 12, 'income');
-        $this->account->update(['balance' => 0]);
-
-        $report = app(EmergencyFundService::class)->forUser($this->user->fresh());
-
-        $this->assertGreaterThan(0, $report['gap']);
-        $this->assertSame(1_000.0, $report['plan']['monthly_surplus']);
-
-        $half = collect($report['plan']['options'])->firstWhere('share', 50);
-        $this->assertSame(500.0, $half['monthly']);
-        $this->assertSame(500.0, $half['investing']);
-        $this->assertSame((int) ceil($report['gap'] / 500), $half['months']);
     }
 
     // ── Splátky úverov ──────────────────────────────────────────────────
@@ -345,71 +299,6 @@ class EmergencyFundTest extends TestCase
         $this->assertTrue($expenses['one_offs'][0]['treat_as_recurring']);
     }
 
-    public function test_a_student_is_not_penalised_for_missing_unemployment_insurance(): void
-    {
-        $fund = app(EmergencyFundService::class);
-        $steady = ['is_volatile' => false, 'volatility' => 5.0];
-        $expenses = ['essential_share' => 50.0];
-
-        $student = $fund->recommendMonths(
-            ['income_type' => 'student', 'household' => 'single', 'unemployment_benefit' => false, 'health_risk' => false, 'months_override' => null],
-            $expenses,
-            $steady
-        );
-
-        // model „N mesiacov bez práce" sem nesedí — ostáva pri základe
-        $this->assertSame(3, $student['recommended']);
-        $benefit = collect($student['factors'])->firstWhere('key', 'benefit');
-        $this->assertSame(0, $benefit['delta']);
-        $this->assertStringContainsString('dohode o brigádnickej práci', $benefit['note']);
-    }
-
-    public function test_students_get_a_graduation_transition_milestone(): void
-    {
-        $this->monthly('Nájom', 300);
-        $this->monthly('Reštaurácia, fast-food', 200);
-
-        $this->user->update(['reserve_profile' => [
-            'income_type' => 'student',
-            'graduation_year' => 2029,
-            'post_graduation_expenses' => 1_200,
-        ]]);
-
-        $report = app(EmergencyFundService::class)->forUser($this->user->fresh());
-        $graduation = collect($report['milestones'])->firstWhere('key', 'graduation');
-
-        $this->assertNotNull($graduation);
-        $this->assertSame('Prechod po škole (2029)', $graduation['label']);
-        $this->assertSame(3_600.0, $graduation['amount']); // 3 × 1 200 €
-        $this->assertFalse($graduation['is_estimate']);
-    }
-
-    public function test_the_graduation_milestone_falls_back_to_current_spending(): void
-    {
-        $this->monthly('Nájom', 300);
-        $this->monthly('Reštaurácia, fast-food', 200);
-
-        $this->user->update(['reserve_profile' => ['income_type' => 'student']]);
-
-        $report = app(EmergencyFundService::class)->forUser($this->user->fresh());
-        $graduation = collect($report['milestones'])->firstWhere('key', 'graduation');
-
-        // bez vlastného odhadu sa berú dnešné celkové výdavky (500 €)
-        $this->assertSame(500.0, $graduation['monthly_basis']);
-        $this->assertSame(1_500.0, $graduation['amount']);
-        $this->assertTrue($graduation['is_estimate']);
-    }
-
-    public function test_non_students_have_no_graduation_milestone(): void
-    {
-        $this->monthly('Nájom', 500);
-        $this->user->update(['reserve_profile' => ['income_type' => 'stable']]);
-
-        $report = app(EmergencyFundService::class)->forUser($this->user->fresh());
-
-        $this->assertNull(collect($report['milestones'])->firstWhere('key', 'graduation'));
-    }
-
     // ── Miera úspor meria spotrebu, nie hrubý rozdiel ───────────────────
 
     public function test_money_moved_to_the_portfolio_does_not_lower_the_savings_rate(): void
@@ -428,11 +317,19 @@ class EmergencyFundTest extends TestCase
         $this->assertSame(6_000.0, $window['savings_flow']);
     }
 
-    public function test_a_one_off_expense_does_not_sink_the_savings_rate(): void
+    /** Rovnaká suma do kategórie každý ukončený mesiac. */
+    protected function transactionEachMonth(Category $category, float $amount, int $months): void
+    {
+        for ($i = 1; $i <= $months; $i++) {
+            $this->transaction($category, $amount, $i);
+        }
+    }
+
+    public function test_a_one_off_expense_still_counts_against_the_savings_rate(): void
     {
         $this->monthly('mzda', 2_000, 12, 'income');
         $this->monthly('Nájom', 500);
-        // rovnátka na dve splátky
+        // rovnátka na dve splátky — jednorazové, ale peniaze sú preč
         $medical = $this->category('Zdravotná starostlivosť, lekár');
         $this->transaction($medical, 3_000, 4);
         $this->transaction($medical, 3_000, 7);
@@ -440,12 +337,12 @@ class EmergencyFundTest extends TestCase
         $report = app(FinancialProfileService::class)->savingsRateReport($this->user->fresh(), 5.0, 4.0);
         $window = $report['windows'][12];
 
-        $this->assertSame(6_000.0, $window['one_off']);
-        $this->assertSame(75.0, $window['rate']);
+        // (24 000 − 6 000 − 6 000) / 24 000
+        $this->assertSame(50.0, $window['rate']);
         $this->assertSame(50.0, $window['gross_rate']);
     }
 
-    public function test_the_profile_reports_both_the_gross_and_the_recurring_figure(): void
+    public function test_the_profile_separates_consumption_from_money_sent_to_the_portfolio(): void
     {
         $this->monthly('mzda', 2_000, 12, 'income');
         $this->monthly('Nájom', 500);
@@ -454,98 +351,31 @@ class EmergencyFundTest extends TestCase
         $profile = app(FinancialProfileService::class)->forUser($this->user->fresh());
         $m = $profile['measured'];
 
-        $this->assertSame(900.0, $m['expense']);            // hrubé výdavky
-        $this->assertSame(500.0, $m['recurring_expense']);  // po očistení
-        $this->assertSame(1_100.0, $m['savings']);
-        $this->assertSame(1_500.0, $m['recurring_savings']);
+        $this->assertSame(900.0, $m['expense']);       // hrubé výdavky
+        $this->assertSame(500.0, $m['consumption']);   // bez portfólia
+        $this->assertSame(1_500.0, $m['savings']);
+        $this->assertSame(75.0, $m['savings_rate']);
         $this->assertSame(400.0, $m['savings_flow']);
     }
 
-    // ── Život po škole ──────────────────────────────────────────────────
-
-    public function test_the_after_school_estimate_adds_rent_to_current_non_housing_costs(): void
+    public function test_borrowed_money_is_not_income(): void
     {
-        // dnes: 300 na jedlo, 100 na internát — bývanie sa pri odhade nahradí nájmom
-        $this->monthly('Potraviny', 300);
-        $housing = $this->categories['Bývanie'];
-        $this->transactionEachMonth($this->categories['Nájom'], 100, 12);
+        $this->monthly('mzda', 2_000, 12, 'income');
+        $this->monthly('Nájom', 1_000);
+        $loanIn = Category::create([
+            'user_id' => $this->user->id, 'name' => 'Pôžičky, prenájom', 'type' => 'income', 'is_savings' => true,
+            'color' => '#fab005', 'icon' => '📥', 'position' => 99,
+        ]);
+        Transaction::create([
+            'user_id' => $this->user->id, 'account_id' => $this->account->id, 'category_id' => $loanIn->id,
+            'type' => 'income', 'amount' => 12_000,
+            'date' => CarbonImmutable::today()->subMonthsNoOverflow(2)->startOfMonth()->addDays(3)->toDateString(),
+        ]);
 
-        $this->user->update(['reserve_profile' => [
-            'income_type' => 'student',
-            'graduation_year' => 2029,
-            'after_school_city' => 'kosice',
-            'after_school_share' => 1.0,
-        ]]);
+        $m = app(FinancialProfileService::class)->forUser($this->user->fresh())['measured'];
 
-        $fund = app(EmergencyFundService::class);
-        $user = $this->user->fresh();
-        $profile = $fund->profile($user);
-        $a = $fund->afterSchoolEstimate($user, $profile, $fund->essentialExpenses($user, $profile));
-
-        $this->assertTrue($a['available']);
-        $this->assertSame('Košice', $a['basis']);
-        $this->assertSame(736.0, $a['rent']);
-        // súčasné bývanie sa odráta, aby sa nepočítalo dvakrát
-        $this->assertSame(100.0, $a['housing_now']);
-        $this->assertSame(300.0, $a['current_without_housing']);
-        $this->assertSame(1_036.0, $a['estimate']);
-
-        $this->assertNotNull($housing);
-    }
-
-    public function test_a_shared_flat_halves_the_rent_assumption(): void
-    {
-        $this->monthly('Potraviny', 400);
-        $this->user->update(['reserve_profile' => [
-            'income_type' => 'student', 'after_school_city' => 'bratislava', 'after_school_share' => 0.5,
-        ]]);
-
-        $fund = app(EmergencyFundService::class);
-        $user = $this->user->fresh();
-        $profile = $fund->profile($user);
-        $a = $fund->afterSchoolEstimate($user, $profile, $fund->essentialExpenses($user, $profile));
-
-        $this->assertSame(948.0, $a['rent_full']);
-        $this->assertSame(474.0, $a['rent']);
-        $this->assertSame(874.0, $a['estimate']);
-    }
-
-    public function test_the_graduation_milestone_uses_the_rent_based_estimate(): void
-    {
-        $this->monthly('Potraviny', 400);
-        $this->user->update(['reserve_profile' => [
-            'income_type' => 'student', 'graduation_year' => 2029, 'after_school_size' => '1', 'after_school_share' => 1.0,
-        ]]);
-
-        $report = app(EmergencyFundService::class)->forUser($this->user->fresh());
-        $graduation = collect($report['milestones'])->firstWhere('key', 'graduation');
-
-        // 400 € dnešné výdavky + 468 € za 1-izbový byt, krát tri mesiace
-        $this->assertSame(868.0, $graduation['monthly_basis']);
-        $this->assertSame(2_604.0, $graduation['amount']);
-        $this->assertTrue($graduation['from_rent_index']);
-    }
-
-    public function test_a_custom_estimate_still_beats_the_reference_data(): void
-    {
-        $this->monthly('Potraviny', 400);
-        $this->user->update(['reserve_profile' => [
-            'income_type' => 'student', 'after_school_city' => 'bratislava', 'post_graduation_expenses' => 1_800,
-        ]]);
-
-        $report = app(EmergencyFundService::class)->forUser($this->user->fresh());
-        $graduation = collect($report['milestones'])->firstWhere('key', 'graduation');
-
-        $this->assertSame(1_800.0, $graduation['monthly_basis']);
-        $this->assertFalse($graduation['from_rent_index']);
-    }
-
-    /** Rovnaká suma do kategórie každý ukončený mesiac. */
-    protected function transactionEachMonth(Category $category, float $amount, int $months): void
-    {
-        for ($i = 1; $i <= $months; $i++) {
-            $this->transaction($category, $amount, $i);
-        }
+        $this->assertSame(2_000.0, $m['income']);
+        $this->assertSame(50.0, $m['savings_rate']);
     }
 
     public function test_the_page_renders(): void
@@ -561,20 +391,44 @@ class EmergencyFundTest extends TestCase
         $foreign = Account::create(['user_id' => $stranger->id, 'name' => 'Cudzí', 'type' => 'cash', 'balance' => 999, 'color' => '#000000']);
 
         $this->actingAs($this->user)->post('/reserve', [
-            'income_type' => 'self_employed',
-            'household' => 'dependents',
-            'unemployment_benefit' => false,
-            'health_risk' => true,
+            'months' => 6,
             'source' => 'account',
             'account_id' => $foreign->id,
-            'months_override' => null,
             'essential_category_ids' => [$this->categories['Potraviny']->id],
         ])->assertRedirect();
 
         $profile = $this->user->fresh()->reserve_profile;
-        $this->assertSame('self_employed', $profile['income_type']);
+        $this->assertSame(6, $profile['months']);
         // cudzí účet sa nesmie uložiť
         $this->assertNull($profile['account_id']);
         $this->assertSame([$this->categories['Potraviny']->id], $profile['essential_category_ids']);
+    }
+
+    public function test_the_dashboard_shows_the_same_reserve_as_the_reserve_page(): void
+    {
+        $this->monthly('Nájom', 1_000);
+        $this->account->update(['balance' => 4_000]);
+
+        $report = app(EmergencyFundService::class)->forUser($this->user->fresh());
+
+        $this->actingAs($this->user)->get('/dashboard')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->where('reserve.months', fn ($v) => (float) $v === $report['covered_months'])
+                ->where('reserve.gap', fn ($v) => (float) $v === $report['gap'])
+            );
+    }
+
+    public function test_money_saved_for_goals_is_not_counted_as_reserve(): void
+    {
+        $this->monthly('Nájom', 500);
+        $this->account->update(['balance' => 3_000]);
+        $this->user->goals()->create(['name' => 'Dovolenka', 'target_amount' => 1_500, 'saved_amount' => 800, 'color' => '#4c8dff']);
+
+        $report = app(EmergencyFundService::class)->forUser($this->user->fresh());
+
+        // 3 000 − 800 na cieľ − 500 bežných výdavkov tohto mesiaca
+        $this->assertSame(1_700.0, $report['held']);
+        $this->assertSame(800.0, $report['held_basis']['goals']);
     }
 }

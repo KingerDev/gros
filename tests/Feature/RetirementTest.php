@@ -8,7 +8,6 @@ use App\Models\Investment;
 use App\Models\Transaction;
 use App\Models\User;
 use App\Services\FinancialProfileService;
-use App\Services\MarketDataService;
 use App\Services\PortfolioAnalyticsService;
 use App\Services\RetirementService;
 use Carbon\CarbonImmutable;
@@ -16,6 +15,10 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
+/**
+ * Dôchodková projekcia v troch scenároch výnosu, meranie vkladov a stránka
+ * „Oplatí sa?", ktorá stojí na tých istých predpokladoch.
+ */
 class RetirementTest extends TestCase
 {
     use RefreshDatabase;
@@ -26,401 +29,110 @@ class RetirementTest extends TestCase
     {
         parent::setUp();
         $this->user = User::factory()->create();
-        $this->fakeMarketData();
+        // porovnanie s benchmarkom na stránke investícií nesmie siahať na sieť
+        Http::fake(['*' => Http::response([], 404)]);
     }
 
-    /**
-     * Deterministické „historické" dáta: 1,1 % mesačne s −15 % prepadom každé
-     * štyri roky. Vychádza z toho ~9 % nominálne ročne — rádovo to isté, čo
-     * dávajú skutočné akciové indexy, aby testy overovali realistický režim.
-     */
-    protected function fakeMarketData(): void
+    protected function project(float $start, array $overrides): array
     {
-        $timestamps = [];
-        $closes = [];
-        $price = 100.0;
-        $start = CarbonImmutable::create(1993, 1, 1);
-        for ($m = 0; $m < 400; $m++) {
-            $timestamps[] = $start->addMonths($m)->timestamp;
-            $closes[] = $price;
-            $price *= $m % 50 === 49 ? 0.85 : 1.011;
-        }
-
-        $periods = [];
-        $observations = [];
-        for ($i = 0; $i < 240; $i++) {
-            $periods[] = ['id' => CarbonImmutable::create(2000, 1, 1)->addMonths($i)->format('Y-m')];
-            $observations[(string) $i] = [3.0];
-        }
-
-        Http::fake([
-            'query1.finance.yahoo.com/*' => Http::response([
-                'chart' => ['result' => [[
-                    'meta' => ['currency' => 'EUR', 'regularMarketPrice' => end($closes)],
-                    'timestamp' => $timestamps,
-                    'indicators' => ['quote' => [['close' => $closes]]],
-                ]]],
-            ]),
-            'data-api.ecb.europa.eu/*' => Http::response([
-                'structure' => ['dimensions' => ['observation' => [['id' => 'TIME_PERIOD', 'values' => $periods]]]],
-                'dataSets' => [['series' => ['0:0:0:0:0:0' => ['observations' => $observations]]]],
-            ]),
-            'api.frankfurter.dev/*' => Http::response(['rates' => []]),
-        ]);
+        return app(RetirementService::class)->project($this->user, $start, $overrides);
     }
 
-    public function test_benchmark_history_is_parsed_into_monthly_returns(): void
+    // ── Projekcia ───────────────────────────────────────────────────────
+
+    public function test_the_three_scenarios_are_ordered_and_labelled(): void
     {
-        $b = app(MarketDataService::class)->benchmark('world');
-
-        $this->assertNotNull($b);
-        $this->assertSame(399, $b['months']);
-        $this->assertSame('EUR', $b['currency']);
-        $this->assertGreaterThan(0, $b['cagr']);
-        $this->assertGreaterThan(0, $b['vol']);
-    }
-
-    public function test_dividends_are_included_via_the_adjusted_close(): void
-    {
-        // ceny stoja, ale adjclose rastie — čistý dividendový výnos
-        $timestamps = [];
-        $closes = [];
-        $adjusted = [];
-        $adj = 100.0;
-        for ($m = 0; $m < 120; $m++) {
-            $timestamps[] = CarbonImmutable::create(2010, 1, 1)->addMonths($m)->timestamp;
-            $closes[] = 100.0;
-            $adjusted[] = $adj;
-            $adj *= 1.005;
-        }
-
-        Http::fake([
-            'query1.finance.yahoo.com/*' => Http::response([
-                'chart' => ['result' => [[
-                    'meta' => ['currency' => 'USD'],
-                    'timestamp' => $timestamps,
-                    'indicators' => [
-                        'quote' => [['close' => $closes]],
-                        'adjclose' => [['adjclose' => $adjusted]],
-                    ],
-                ]]],
-            ]),
-        ]);
-
-        $b = app(MarketDataService::class)->benchmark('acwi');
-
-        // bez adjclose by výnos vyšiel nula
-        $this->assertGreaterThan(0.05, $b['cagr']);
-    }
-
-    public function test_the_default_plan_uses_the_longest_history_and_a_matching_haircut(): void
-    {
-        $params = app(RetirementService::class)->resolveParams(User::factory()->create());
-
-        $this->assertSame(RetirementService::DEFAULT_ENGINE, $params['engine']);
-        $this->assertSame(RetirementService::DEFAULT_HAIRCUT, $params['haircut']);
-
-        // predvolený motor musí byť naozaj ten najdlhší z ponuky
-        $since = array_column(MarketDataService::BENCHMARKS, 'since', null);
-        $keys = array_keys(MarketDataService::BENCHMARKS);
-        $longest = $keys[array_search(min($since), $since, true)];
-        $this->assertSame($longest, RetirementService::DEFAULT_ENGINE);
-    }
-
-    public function test_the_default_haircut_is_actually_applied_to_the_projection(): void
-    {
-        $svc = app(RetirementService::class);
-        $user = User::factory()->create();
-        $args = ['year' => 2065, 'monthly' => 100, 'inflation' => 3.11];
-
-        $default = $svc->project($user, 10_000, $args);
-        $raw = $svc->project($user, 10_000, $args + ['haircut' => 0]);
-
-        // zrážka je v ťahu spolu s poplatkami a naozaj znižuje výnos
-        $this->assertSame(round(0.25 + RetirementService::DEFAULT_HAIRCUT, 2), $default['engine']['drag']);
-        $this->assertLessThan($raw['engine']['net_cagr'], $default['engine']['net_cagr']);
-        $this->assertLessThan($default['engine']['cagr'], $default['engine']['net_cagr']);
-
-        // a premietne sa až do konečnej sumy, nie len do popisku
-        $this->assertLessThan($raw['final']['real']['p50'], $default['final']['real']['p50']);
-    }
-
-    public function test_short_history_engines_are_marked(): void
-    {
-        $m = app(MarketDataService::class);
-
-        // fake dáta majú 400 mesiacov ≈ 33 rokov, takže krátke nie sú
-        $this->assertFalse($m->benchmark('us_long')['short_history']);
-        $this->assertGreaterThan(25, $m->benchmark('us_long')['years']);
-
-        // metadáta v konštante musia zodpovedať poradiu od najdlhšieho radu
-        $since = array_column(MarketDataService::BENCHMARKS, 'since');
-        $sorted = $since;
-        sort($sorted);
-        $this->assertSame($sorted, $since);
-    }
-
-    public function test_inflation_history_comes_from_ecb(): void
-    {
-        $i = app(MarketDataService::class)->inflation('SK');
-
-        $this->assertNotNull($i);
-        $this->assertSame(3.0, $i['avg']);
-        $this->assertSame(3.0, $i['avg20']);
-    }
-
-    public function test_projection_produces_ordered_percentile_bands(): void
-    {
-        $r = app(RetirementService::class)->project($this->user, 10_000, [
-            'year' => 2065, 'monthly' => 300, 'inflation' => 3.0, 'engine' => 'world',
-        ]);
+        $r = $this->project(10_000, ['year' => CarbonImmutable::today()->year + 30, 'monthly' => 300]);
 
         $this->assertTrue($r['ok']);
-        $this->assertCount($r['years'] + 1, $r['series']);
-        $this->assertSame(2065, end($r['series'])['year']);
+        $byKey = collect($r['scenarios'])->keyBy('key');
+        $this->assertSame([3.0, 5.0, 7.0], [$byKey['low']['real_return'], $byKey['mid']['real_return'], $byKey['high']['real_return']]);
+        $this->assertLessThan($byKey['mid']['final'], $byKey['low']['final']);
+        $this->assertLessThan($byKey['high']['final'], $byKey['mid']['final']);
 
-        foreach ($r['series'] as $point) {
-            $this->assertLessThanOrEqual($point['p25'], $point['p10']);
-            $this->assertLessThanOrEqual($point['p50'], $point['p25']);
-            $this->assertLessThanOrEqual($point['p75'], $point['p50']);
-            $this->assertLessThanOrEqual($point['p90'], $point['p75']);
+        foreach ($r['series'] as $row) {
+            $this->assertLessThanOrEqual($row['mid'], $row['low']);
+            $this->assertLessThanOrEqual($row['high'], $row['mid']);
         }
-
-        // prvý bod je dnešok — všetky scenáre štartujú na rovnakej hodnote
-        $this->assertSame(10_000.0, $r['series'][0]['p50']);
-
-        // dnešné eurá musia byť nižšie než nominálne (inflácia > 0)
-        $this->assertLessThan($r['final']['nominal']['p50'], $r['final']['real']['p50']);
+        $this->assertCount(31, $r['series']);
     }
 
-    public function test_contributions_are_indexed_to_inflation(): void
+    public function test_the_value_matches_the_annuity_formula(): void
     {
         $svc = app(RetirementService::class);
 
-        $flat = $svc->project($this->user, 0, ['year' => 2046, 'monthly' => 100, 'inflation' => 3.0, 'index_contributions' => false]);
-        $indexed = $svc->project($this->user, 0, ['year' => 2046, 'monthly' => 100, 'inflation' => 3.0, 'index_contributions' => true]);
-
-        $this->assertGreaterThan($flat['final']['contributed'], $indexed['final']['contributed']);
+        // bez výnosu je to len súčet vkladov
+        $this->assertSame(1_000.0 + 100 * 120, $svc->valueAt(1_000, 100, 0.0, 10));
+        // 1 000 € pri 5 % na 10 rokov = 1 000 × 1,05^10
+        $this->assertEqualsWithDelta(1_628.89, $svc->valueAt(1_000, 0, 5.0, 10), 0.01);
+        // 100 € mesačne, 10 rokov, 5 % ročne (vklad na začiatku mesiaca)
+        $this->assertEqualsWithDelta(15_499.2, $svc->valueAt(0, 100, 5.0, 10), 0.5);
     }
 
-    public function test_required_monthly_contribution_reaches_the_target(): void
+    public function test_the_income_follows_the_withdrawal_rate(): void
     {
-        $r = app(RetirementService::class)->project($this->user, 0, [
-            'year' => 2060, 'monthly' => 50, 'target_income' => 1_500, 'withdrawal' => 4.0,
-        ]);
+        $r = $this->project(0, ['year' => CarbonImmutable::today()->year + 20, 'monthly' => 500, 'withdrawal' => 4]);
+        $mid = collect($r['scenarios'])->firstWhere('key', 'mid');
 
-        $required = $r['target']['required_monthly'];
-        $this->assertNotNull($required);
-
-        // pri odporúčanom vklade musí medián naozaj dosiahnuť cieľovú rentu
-        $check = app(RetirementService::class)->project($this->user, 0, [
-            'year' => 2060, 'monthly' => $required, 'target_income' => 1_500, 'withdrawal' => 4.0,
-        ]);
-        $this->assertGreaterThanOrEqual(1_500 * 0.99, $check['final']['income']['p50']);
-
-        // opatrný plán (90 % scenárov) musí byť drahší než mediánový
-        $this->assertGreaterThan($required, $r['target']['required_monthly_safe']);
+        $this->assertEqualsWithDelta($mid['final'] * 0.04 / 12, $mid['income'], 0.01);
     }
 
-    public function test_a_year_in_the_past_is_clamped_to_the_nearest_usable_one(): void
+    public function test_the_fire_number_is_annual_spending_over_the_withdrawal_rate(): void
     {
-        $r = app(RetirementService::class)->project($this->user, 1_000, ['year' => 1990]);
+        $svc = app(RetirementService::class);
 
-        $this->assertTrue($r['ok']);
-        $this->assertSame(CarbonImmutable::today()->year + 1, $r['params']['year']);
-        $this->assertSame(1, $r['years']);
+        // 1 500 × 12 / 4 % — so štátnym dôchodkom sa zámerne nepočíta
+        $this->assertSame(450_000.0, $svc->fireNumber(['spending' => 1_500.0, 'withdrawal' => 4.0]));
+        $this->assertNull($svc->fireNumber(['spending' => null, 'withdrawal' => 4.0]));
     }
 
-    public function test_freedom_year_is_the_first_year_the_median_covers_the_fire_number(): void
+    public function test_freedom_is_a_range_from_the_good_to_the_cautious_scenario(): void
     {
-        $r = app(RetirementService::class)->project($this->user, 20_000, [
-            'year' => 2065, 'monthly' => 500, 'spending' => 1_200, 'withdrawal' => 4.0, 'inflation' => 3.0,
-        ]);
-
+        $r = $this->project(50_000, ['year' => CarbonImmutable::today()->year + 30, 'monthly' => 800, 'spending' => 1_500]);
         $f = $r['freedom'];
-        $this->assertNotNull($f);
-        $this->assertSame(1_200 * 12 / 0.04, $f['fire_number']);
-        $this->assertTrue($f['reached']);
 
-        // v roku slobody už medián pokrýva potrebnú sumu, o rok skôr ešte nie
-        $byYear = collect($r['series'])->keyBy('year');
-        $this->assertGreaterThanOrEqual($f['fire_number'], $byYear[$f['year']]['real_p50']);
-        $this->assertLessThan($f['fire_number'], $byYear[$f['year'] - 1]['real_p50']);
-
-        // opatrný scenár nemôže prísť skôr než stredný, šťastný nie neskôr
-        $this->assertGreaterThanOrEqual($f['year'], $f['year_safe']);
-        $this->assertLessThanOrEqual($f['year'], $f['year_lucky']);
-    }
-
-    public function test_freedom_beyond_the_target_year_still_reports_a_year(): void
-    {
-        // cieľový rok zámerne skorý, aby sa doň sloboda nestihla
-        $r = app(RetirementService::class)->project($this->user, 1_000, [
-            'year' => 2035, 'monthly' => 200, 'spending' => 500, 'withdrawal' => 4.0, 'inflation' => 3.0,
-        ]);
-
-        $f = $r['freedom'];
-        $this->assertTrue($f['reached']);
-        $this->assertFalse($f['within_plan']);
-        // rok existuje a leží za plánovaným odchodom
-        $this->assertGreaterThan(2035, $f['year']);
-        $this->assertLessThanOrEqual($f['horizon_year'], $f['year']);
-        $this->assertLessThan(0, $f['years_earlier']);
+        $this->assertNotNull($f['year']);
+        $this->assertLessThanOrEqual($f['year'], $f['earliest']);
+        $this->assertGreaterThanOrEqual($f['year'], $f['latest']);
     }
 
     public function test_a_missed_target_year_comes_with_the_contribution_that_would_hit_it(): void
     {
-        $svc = app(RetirementService::class);
-        $args = ['year' => 2035, 'spending' => 500, 'withdrawal' => 4.0, 'inflation' => 3.0];
+        $year = CarbonImmutable::today()->year + 20;
+        $r = $this->project(0, ['year' => $year, 'monthly' => 100, 'spending' => 2_000]);
+        $f = $r['freedom'];
 
-        $r = $svc->project($this->user, 1_000, $args + ['monthly' => 200]);
-        $required = $r['freedom']['required_monthly'];
+        $this->assertFalse($f['within_plan']);
+        $this->assertGreaterThan(100, $f['required_monthly']);
 
-        $this->assertNotNull($required);
-        $this->assertGreaterThan(200, $required);
-        $this->assertSame(round($required - 200, 2), $r['freedom']['required_extra']);
-
-        // pri odporúčanom vklade to už do cieľového roku vyjde
-        $fixed = $svc->project($this->user, 1_000, $args + ['monthly' => $required]);
-        $this->assertTrue($fixed['freedom']['within_plan']);
-        $this->assertLessThanOrEqual(2035, $fixed['freedom']['year']);
-    }
-
-    public function test_a_reachable_plan_needs_no_extra_contribution(): void
-    {
-        $r = app(RetirementService::class)->project($this->user, 200_000, [
-            'year' => 2065, 'monthly' => 1_000, 'spending' => 800, 'withdrawal' => 4.0, 'inflation' => 3.0,
-        ]);
-
-        $this->assertTrue($r['freedom']['within_plan']);
-        $this->assertNull($r['freedom']['required_monthly']);
-        $this->assertGreaterThan(0, $r['freedom']['years_earlier']);
-    }
-
-    // ── Výberová fáza ───────────────────────────────────────────────────
-
-    public function test_a_longer_retirement_is_harder_to_survive(): void
-    {
-        $svc = app(RetirementService::class);
-        $args = ['year' => 2045, 'monthly' => 500, 'spending' => 1_000, 'withdrawal' => 4.0, 'inflation' => 3.0];
-
-        $short = $svc->project($this->user, 300_000, $args + ['duration' => 20]);
-        $long = $svc->project($this->user, 300_000, $args + ['duration' => 45]);
-
-        $this->assertSame(20, $short['withdrawal']['duration']);
-
-        // porovnáva sa tabuľka sadzieb — tam obe štartujú z presne nasporenej
-        // sumy, takže sa líši výlučne dĺžka dôchodku
-        $shortAt4 = $short['withdrawal']['rates'][0]['success_pct'];
-        $longAt4 = $long['withdrawal']['rates'][0]['success_pct'];
-        $this->assertSame(4.0, $short['withdrawal']['rates'][0]['rate']);
-        $this->assertGreaterThan($longAt4, $shortAt4);
-    }
-
-    public function test_a_lower_withdrawal_rate_always_survives_better(): void
-    {
-        $r = app(RetirementService::class)->project($this->user, 200_000, [
-            'year' => 2045, 'monthly' => 300, 'spending' => 1_200, 'duration' => 35, 'inflation' => 3.0,
-        ]);
-
-        $rates = $r['withdrawal']['rates'];
-        $this->assertCount(6, $rates);
-
-        // nižšia miera výberu vyžaduje viac peňazí a musí prežiť častejšie
-        $previous = null;
-        foreach ($rates as $row) {
-            if ($previous !== null) {
-                $this->assertLessThan($previous['rate'], $row['rate']);
-                $this->assertGreaterThan($previous['needed'], $row['needed']);
-                $this->assertGreaterThanOrEqual($previous['success_pct'], $row['success_pct']);
-            }
-            $previous = $row;
-        }
-    }
-
-    public function test_the_safe_rate_is_the_first_one_reaching_the_target(): void
-    {
-        $w = app(RetirementService::class)->project($this->user, 200_000, [
-            'year' => 2045, 'monthly' => 300, 'spending' => 1_200, 'duration' => 35, 'inflation' => 3.0,
-        ])['withdrawal'];
-
-        if ($w['safe_rate'] === null) {
-            $this->assertLessThan($w['target'], max(array_column($w['rates'], 'success_pct')));
-
-            return;
-        }
-
-        $this->assertGreaterThanOrEqual($w['target'], $w['safe_rate']['success_pct']);
-
-        // všetky vyššie miery výberu musia cieľ minúť — inak by bezpečná bola iná
-        foreach ($w['rates'] as $row) {
-            if ($row['rate'] > $w['safe_rate']['rate']) {
-                $this->assertLessThan($w['target'], $row['success_pct']);
-            }
-        }
-    }
-
-    public function test_a_depleted_path_reports_when_the_money_ran_out(): void
-    {
-        // zámerne neudržateľné: malý štart, veľké výdavky
-        $w = app(RetirementService::class)->project($this->user, 10_000, [
-            'year' => 2030, 'monthly' => 0, 'spending' => 3_000, 'duration' => 40, 'withdrawal' => 4.0,
-        ])['withdrawal'];
-
-        $this->assertLessThan(50, $w['success_pct']);
-        $this->assertNotNull($w['depleted_year']);
-        $this->assertGreaterThanOrEqual(2030, $w['depleted_year']);
-    }
-
-    public function test_the_withdrawal_phase_needs_a_spending_figure(): void
-    {
-        $r = app(RetirementService::class)->project($this->user, 100_000, ['year' => 2045, 'monthly' => 200]);
-
-        $this->assertNull($r['withdrawal']);
-    }
-
-    public function test_the_retirement_duration_is_saved(): void
-    {
-        $this->actingAs($this->user)->post('/retirement', [
-            'year' => 2065, 'duration' => 42, 'monthly' => 300, 'index_contributions' => true,
-            'inflation' => 3.1, 'fees' => 0.25, 'haircut' => 2.5, 'withdrawal' => 3.5,
-            'engine' => 'us_long', 'spending' => 1_400,
-        ])->assertRedirect();
-
-        $this->assertSame(42, $this->user->fresh()->retire_duration);
+        // s tým vkladom stredný scenár naozaj dosiahne cieľ práve v pláne
+        $hit = $this->project(0, ['year' => $year, 'monthly' => $f['required_monthly'], 'spending' => 2_000]);
+        $this->assertTrue($hit['freedom']['within_plan']);
+        $this->assertNull($hit['freedom']['required_monthly']);
     }
 
     public function test_freedom_is_absent_without_a_spending_figure(): void
     {
-        $r = app(RetirementService::class)->project($this->user, 20_000, ['year' => 2065, 'monthly' => 500]);
+        $r = $this->project(10_000, ['year' => CarbonImmutable::today()->year + 30, 'monthly' => 300]);
 
         $this->assertNull($r['freedom']);
+        $this->assertNull($r['scenarios'][0]['freedom_year']);
     }
 
-    public function test_coasting_from_the_coast_year_still_reaches_the_target(): void
+    public function test_a_year_in_the_past_is_clamped_to_the_nearest_usable_one(): void
     {
-        $r = app(RetirementService::class)->project($this->user, 20_000, [
-            'year' => 2065, 'monthly' => 500, 'spending' => 1_200, 'withdrawal' => 4.0, 'inflation' => 3.0,
-        ]);
+        $p = app(RetirementService::class)->resolveParams($this->user, ['year' => 1990]);
 
-        $coast = $r['freedom']['coast_year'];
-        $this->assertNotNull($coast);
-
-        // Coast FIRE nemôže nastať neskôr než samotná sloboda — dovtedy sa ešte vkladá
-        $this->assertLessThanOrEqual($r['freedom']['year'], $coast);
-        $this->assertGreaterThanOrEqual(CarbonImmutable::today()->year, $coast);
+        $this->assertSame(CarbonImmutable::today()->year + 1, $p['year']);
     }
 
-    public function test_a_bigger_contribution_brings_freedom_closer(): void
+    public function test_the_expected_nominal_return_adds_inflation_to_the_real_one(): void
     {
-        $svc = app(RetirementService::class);
-        $args = ['year' => 2065, 'spending' => 800, 'withdrawal' => 4.0, 'inflation' => 3.0];
-
-        $small = $svc->project($this->user, 20_000, $args + ['monthly' => 300]);
-        $big = $svc->project($this->user, 20_000, $args + ['monthly' => 1_200]);
-
-        $this->assertLessThan($small['freedom']['year'], $big['freedom']['year']);
+        // (1,05 × 1,02) − 1 = 7,1 %
+        $this->assertSame(7.1, app(RetirementService::class)->expectedNominalReturn());
     }
+
+    // ── Namerané z transakcií ───────────────────────────────────────────
 
     public function test_measured_profile_reads_the_savings_rate_from_transactions(): void
     {
@@ -490,159 +202,47 @@ class RetirementTest extends TestCase
         $this->assertSame(1.0, $a['allocation']['effective_positions']);
     }
 
-    public function test_scenarios_show_what_a_higher_contribution_would_do(): void
+    public function test_xirr_is_not_annualised_before_a_full_year(): void
     {
-        $r = app(RetirementService::class)->project($this->user, 10_000, [
-            'year' => 2065, 'monthly' => 100, 'spending' => 1_000, 'withdrawal' => 4.0, 'inflation' => 3.0,
+        $inv = Investment::create([
+            'user_id' => $this->user->id, 'ticker' => 'VWCE', 'name' => 'Vanguard All-World',
+            'kind' => 'etf', 'quote_source' => 'manual', 'current_price' => 105, 'color' => '#4c8dff',
         ]);
+        $inv->lots()->create(['type' => 'buy', 'units' => 10, 'price' => 100, 'date' => CarbonImmutable::today()->subMonths(3)->toDateString()]);
+        $inv->recomputeFromLots();
 
-        $s = $r['scenarios'];
-        $this->assertSame(100.0, $s['base']['monthly']);
-        $this->assertCount(4, $s['ladder']);
-        $this->assertNull($s['custom']);
+        $a = app(PortfolioAnalyticsService::class)->forUser($this->user->fresh());
 
-        // každý ďalší stupienok musí dať viac a slobodu skôr
-        $previous = $s['base'];
-        foreach ($s['ladder'] as $step) {
-            $this->assertGreaterThan($previous['monthly'], $step['monthly']);
-            $this->assertGreaterThan($previous['real_p50'], $step['real_p50']);
-            $this->assertGreaterThan($previous['income_p50'], $step['income_p50']);
-            // null = pri tomto tempe sa sloboda v horizonte nedosiahne;
-            // vyšší vklad ju musí buď priniesť, alebo posunúť dopredu
-            if ($previous['freedom_year'] !== null) {
-                $this->assertNotNull($step['freedom_year']);
-                $this->assertLessThanOrEqual($previous['freedom_year'], $step['freedom_year']);
-            }
-            $previous = $step;
-        }
+        // +5 % za tri mesiace by sa ukázalo ako ~+21 % ročne
+        $this->assertFalse($a['annualized']);
+        $this->assertNull($a['xirr']);
+        $this->assertSame(5.0, $a['simple_pct']);
     }
 
-    public function test_a_custom_comparison_amount_is_returned(): void
+    // ── Oplatí sa? ──────────────────────────────────────────────────────
+
+    public function test_a_purchase_shows_its_value_in_three_scenarios(): void
     {
-        $svc = app(RetirementService::class);
-        $args = ['year' => 2065, 'monthly' => 100, 'spending' => 1_000, 'withdrawal' => 4.0, 'inflation' => 3.0];
+        $this->user->update(['retire_year' => CarbonImmutable::today()->year + 30]);
 
-        $r = $svc->project($this->user, 10_000, $args + ['compare' => 250]);
+        $r = $this->actingAs($this->user)->getJson('/purchase/calculate?amount=1000')->assertOk()->json();
+        $last = end($r['purchase']['horizons']);
 
-        $this->assertSame(250.0, $r['scenarios']['custom']['monthly']);
-        $this->assertSame(150.0, $r['scenarios']['custom']['extra']);
-
-        // vlastný scenár musí sedieť s tým, čo by dal plán s rovnakým vkladom
-        $direct = $svc->project($this->user, 10_000, ['year' => 2065, 'monthly' => 250, 'spending' => 1_000, 'withdrawal' => 4.0, 'inflation' => 3.0]);
-        $this->assertSame($direct['scenarios']['base']['real_p50'], $r['scenarios']['custom']['real_p50']);
-        $this->assertSame($direct['freedom']['year'], $r['scenarios']['custom']['freedom_year']);
-    }
-
-    public function test_scenarios_omit_the_freedom_year_without_a_spending_figure(): void
-    {
-        $r = app(RetirementService::class)->project($this->user, 10_000, ['year' => 2065, 'monthly' => 100]);
-
-        $this->assertNull($r['scenarios']['fire_number']);
-        $this->assertNull($r['scenarios']['base']['freedom_year']);
-        $this->assertGreaterThan(0, $r['scenarios']['base']['real_p50']);
-    }
-
-    public function test_the_comparison_does_not_change_the_saved_plan(): void
-    {
-        $this->user->update(['retire_monthly' => 100]);
-
-        $this->actingAs($this->user)
-            ->getJson('/retirement/simulate?year=2065&monthly=100&spending=1000&compare=900')
-            ->assertOk()
-            ->assertJsonPath('scenarios.custom.monthly', 900)
-            ->assertJsonPath('params.monthly', 100);
-
-        $this->assertSame('100.00', $this->user->fresh()->retire_monthly);
-    }
-
-    // ── Oplatí sa mi to? ────────────────────────────────────────────────
-
-    public function test_a_purchase_shows_what_the_money_would_have_grown_into(): void
-    {
-        $r = app(RetirementService::class)->project($this->user, 20_000, [
-            'year' => 2065, 'monthly' => 200, 'spending' => 1_200, 'spend' => 1_000,
-        ]);
-
-        $p = $r['purchase'];
-        $this->assertSame(1_000.0, $p['amount']);
-        $this->assertFalse($p['recurring']);
-
-        // hodnota rastie s horizontom a nikdy nie je nižšia než samotná suma
-        $previous = 0;
-        foreach ($p['horizons'] as $h) {
-            $this->assertGreaterThan($previous, $h['value']);
-            $previous = $h['value'];
-        }
-        $this->assertGreaterThan(1_000, $p['horizons'][0]['value']);
-    }
-
-    public function test_the_purchase_result_scales_exactly_with_the_amount(): void
-    {
-        $svc = app(RetirementService::class);
-        $args = ['year' => 2065, 'monthly' => 200, 'spending' => 1_200];
-
-        $small = $svc->project($this->user, 20_000, $args + ['spend' => 100]);
-        $big = $svc->project($this->user, 20_000, $args + ['spend' => 2_500]);
-
-        // to isté euro musí vyjsť rovnako bez ohľadu na cenu nákupu
-        foreach ($small['purchase']['horizons'] as $i => $h) {
-            $this->assertEqualsWithDelta(
-                $h['value'] / 100,
-                $big['purchase']['horizons'][$i]['value'] / 2_500,
-                0.001,
-                "horizont {$h['years']} rokov nescaluje lineárne"
-            );
-        }
-    }
-
-    public function test_the_purchase_value_is_expressed_in_todays_euros(): void
-    {
-        $svc = app(RetirementService::class);
-        $args = ['year' => 2065, 'monthly' => 200, 'spending' => 1_200, 'spend' => 1_000];
-
-        $noInflation = $svc->project($this->user, 20_000, $args + ['inflation' => 0]);
-        $withInflation = $svc->project($this->user, 20_000, $args + ['inflation' => 5]);
-
-        // pri inflácii musí byť tá istá suma v dnešných eurách výrazne nižšia
-        $this->assertLessThan(
-            end($noInflation['purchase']['horizons'])['value'] * 0.5,
-            end($withInflation['purchase']['horizons'])['value']
-        );
+        $this->assertSame(30, $last['years']);
+        // 1 000 € × 1,05^30 ≈ 4 322 €
+        $this->assertEqualsWithDelta(4_321.94, $last['mid'], 0.5);
+        $this->assertLessThan($last['mid'], $last['low']);
+        $this->assertGreaterThan($last['mid'], $last['high']);
     }
 
     public function test_a_recurring_cost_hurts_far_more_than_the_same_amount_once(): void
     {
-        $svc = app(RetirementService::class);
-        $args = ['year' => 2065, 'monthly' => 200, 'spending' => 1_200];
+        $this->user->update(['retire_year' => CarbonImmutable::today()->year + 30]);
 
-        $once = $svc->project($this->user, 20_000, $args + ['spend' => 50]);
-        $monthly = $svc->project($this->user, 20_000, $args + ['spend' => 50, 'spend_monthly' => true]);
+        $once = $this->actingAs($this->user)->getJson('/purchase/calculate?amount=50')->json('purchase.horizons');
+        $monthly = $this->actingAs($this->user)->getJson('/purchase/calculate?amount=50&recurring=1')->json('purchase.horizons');
 
-        $lastOnce = end($once['purchase']['horizons'])['value'];
-        $lastMonthly = end($monthly['purchase']['horizons'])['value'];
-
-        $this->assertTrue($monthly['purchase']['recurring']);
-        $this->assertGreaterThan($lastOnce * 5, $lastMonthly);
-    }
-
-    public function test_a_purchase_can_push_the_freedom_year_back(): void
-    {
-        // veľký opakovaný výdavok musí slobodu odsunúť
-        $r = app(RetirementService::class)->project($this->user, 20_000, [
-            'year' => 2065, 'monthly' => 500, 'spending' => 1_200, 'spend' => 300, 'spend_monthly' => true,
-        ]);
-
-        $p = $r['purchase'];
-        $this->assertNotNull($p['freedom_if_saved']);
-        $this->assertGreaterThan($p['freedom_if_saved'], $p['freedom_if_spent']);
-        $this->assertGreaterThan(0, $p['delay_years']);
-    }
-
-    public function test_without_an_amount_there_is_no_purchase_block(): void
-    {
-        $r = app(RetirementService::class)->project($this->user, 20_000, ['year' => 2065, 'monthly' => 200]);
-
-        $this->assertNull($r['purchase']);
+        $this->assertGreaterThan(end($once)['mid'] * 50, end($monthly)['mid']);
     }
 
     public function test_the_purchase_page_and_endpoint_respond_without_touching_the_plan(): void
@@ -655,12 +255,14 @@ class RetirementTest extends TestCase
             ->getJson('/purchase/calculate?amount=800')
             ->assertOk()
             ->assertJsonPath('purchase.amount', 800)
-            ->assertJsonStructure(['purchase' => ['horizons', 'freedom_if_saved', 'freedom_if_spent'], 'context']);
+            ->assertJsonStructure(['purchase' => ['horizons' => [['years', 'year', 'low', 'mid', 'high']]], 'context']);
 
         $this->user->refresh();
         $this->assertSame('250.00', $this->user->retire_monthly);
         $this->assertSame('1100.00', $this->user->retire_spending);
     }
+
+    // ── Merané tempo vkladov ────────────────────────────────────────────
 
     public function test_the_monthly_contribution_is_measured_from_actual_purchases(): void
     {
@@ -842,23 +444,239 @@ class RetirementTest extends TestCase
         $this->actingAs($this->user)->get('/retirement')->assertOk();
 
         $this->actingAs($this->user)
-            ->getJson('/retirement/simulate?year=2065&monthly=300&target_income=1500')
+            ->getJson('/retirement/simulate?year=2065&monthly=300&spending=1500')
             ->assertOk()
             ->assertJsonPath('ok', true)
-            ->assertJsonStructure(['series', 'final', 'target', 'engine', 'inflation']);
+            ->assertJsonPath('freedom.monthly_spending', 1500)
+            ->assertJsonStructure(['series', 'scenarios', 'freedom', 'contributed']);
     }
 
     public function test_plan_is_saved_to_the_profile(): void
     {
         $this->actingAs($this->user)->post('/retirement', [
-            'year' => 2065, 'duration' => 35, 'monthly' => 420, 'index_contributions' => true,
-            'inflation' => 3.2, 'fees' => 0.2, 'haircut' => 1.5, 'withdrawal' => 3.5,
-            'engine' => 'sp500tr', 'target_income' => 2000,
+            'year' => 2065, 'monthly' => 420, 'withdrawal' => 3.5, 'spending' => 1_400, 'housing' => 700,
         ])->assertRedirect();
 
         $this->user->refresh();
         $this->assertSame(2065, $this->user->retire_year);
         $this->assertSame('420.00', $this->user->retire_monthly);
-        $this->assertSame('sp500tr', $this->user->retire_engine);
+        $this->assertSame('3.50', $this->user->retire_withdrawal);
+        $this->assertSame('700.00', $this->user->retire_housing);
+    }
+
+    // ── Výdavky v dôchodku a bývanie ────────────────────────────────────
+
+    /** Študent: 2 mesiace spotreby po 400 €, z toho 0 € na bývanie. */
+    protected function studentSpending(float $housing = 0): void
+    {
+        $account = Account::create(['user_id' => $this->user->id, 'name' => 'Bežný', 'type' => 'cash', 'balance' => 500, 'color' => '#4c8dff']);
+        $group = Category::create(['user_id' => $this->user->id, 'name' => 'Bývanie', 'type' => 'expense', 'color' => '#fd7e14', 'icon' => '🏠', 'position' => 1]);
+        $rent = Category::create(['user_id' => $this->user->id, 'name' => 'Nájom', 'type' => 'expense', 'parent_id' => $group->id, 'color' => '#fd7e14', 'icon' => '🔑', 'position' => 1]);
+        $food = Category::create(['user_id' => $this->user->id, 'name' => 'Potraviny', 'type' => 'expense', 'color' => '#ff922b', 'icon' => '🛒', 'position' => 2]);
+
+        for ($i = 1; $i <= 2; $i++) {
+            $date = CarbonImmutable::today()->subMonthsNoOverflow($i)->startOfMonth()->addDays(3)->toDateString();
+            Transaction::create(['user_id' => $this->user->id, 'account_id' => $account->id, 'type' => 'income', 'amount' => 800, 'date' => $date]);
+            Transaction::create(['user_id' => $this->user->id, 'account_id' => $account->id, 'category_id' => $food->id, 'type' => 'expense', 'amount' => 400 - $housing, 'date' => $date]);
+            if ($housing > 0) {
+                Transaction::create(['user_id' => $this->user->id, 'account_id' => $account->id, 'category_id' => $rent->id, 'type' => 'expense', 'amount' => $housing, 'date' => $date]);
+            }
+        }
+    }
+
+    public function test_without_housing_costs_the_page_warns_that_spending_is_too_low(): void
+    {
+        $this->studentSpending();
+
+        $this->actingAs($this->user)->get('/retirement')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->where('spending_basis.housing_now', 0)
+                ->where('spending_basis.missing_housing', true)
+                ->where('spending_basis.auto', 400)
+                ->where('plan.spending', null)
+            );
+    }
+
+    public function test_future_housing_replaces_todays_in_the_retirement_spending(): void
+    {
+        $this->studentSpending(housing: 100);
+
+        $r = $this->actingAs($this->user)->getJson('/retirement/simulate?year=2065&monthly=100&housing=700')->assertOk();
+
+        // 400 € spotreba − 100 € dnešné bývanie + 700 € neskôr
+        $this->assertEquals(1_000, $r->json('freedom.monthly_spending'));
+    }
+
+    public function test_an_own_spending_figure_beats_the_automatic_one(): void
+    {
+        $this->studentSpending();
+
+        $r = $this->actingAs($this->user)->getJson('/retirement/simulate?year=2065&monthly=100&housing=700&spending=1800')->assertOk();
+
+        $this->assertEquals(1_800, $r->json('freedom.monthly_spending'));
+    }
+
+    // ── Pravidlo vkladu a miera výberu ──────────────────────────────────
+
+    public function test_the_recommended_withdrawal_rate_follows_the_retirement_length(): void
+    {
+        $svc = app(RetirementService::class);
+
+        // bez roku narodenia klasických 4 %
+        $this->assertSame(4.0, $svc->recommendedWithdrawal(null, 2065)['rate']);
+        // odchod v 65 → do 90 je to 25 rokov
+        $this->assertSame(4.0, $svc->recommendedWithdrawal(2000, 2065)['rate']);
+        // odchod v 55 → 35 rokov
+        $this->assertSame(3.5, $svc->recommendedWithdrawal(2004, 2059)['rate']);
+        // odchod v 45 → 45 rokov
+        $this->assertSame(3.25, $svc->recommendedWithdrawal(2004, 2049)['rate']);
+    }
+
+    public function test_an_empty_withdrawal_rate_uses_the_recommended_one(): void
+    {
+        $this->user->update(['retire_birth_year' => 2004, 'retire_withdrawal' => null]);
+
+        $p = app(RetirementService::class)->resolveParams($this->user->fresh(), ['year' => 2059]);
+
+        $this->assertSame(3.5, $p['withdrawal']);
+        $this->assertTrue($p['withdrawal_is_recommended']);
+    }
+
+    public function test_the_contribution_can_be_a_share_of_income_after_fixed_payments(): void
+    {
+        $account = Account::create(['user_id' => $this->user->id, 'name' => 'Bežný', 'type' => 'cash', 'balance' => 0, 'color' => '#4c8dff']);
+        for ($i = 1; $i <= 3; $i++) {
+            Transaction::create(['user_id' => $this->user->id, 'account_id' => $account->id, 'type' => 'income', 'amount' => 2_000,
+                'date' => CarbonImmutable::today()->subMonthsNoOverflow($i)->startOfMonth()->addDays(3)->toDateString()]);
+        }
+        $this->user->loans()->create([
+            'kind' => 'owe', 'name' => 'Lízing', 'balance' => 9_000, 'principal' => 15_000, 'payment' => 300, 'rate' => 5,
+            'next_payment' => CarbonImmutable::today()->addMonth()->toDateString(), 'color' => '#4c8dff',
+        ]);
+
+        $r = $this->actingAs($this->user)
+            ->getJson('/retirement/simulate?year=2065&contribution_mode=percent&contribution_pct=25')
+            ->assertOk();
+
+        // 25 % z (2 000 − 300)
+        $this->assertEquals(425, $r->json('rule.monthly'));
+        $this->assertEquals(425, $r->json('params.monthly'));
+    }
+
+    public function test_a_later_phase_raises_the_contribution_from_that_year(): void
+    {
+        $this->user->loans()->create([
+            'kind' => 'owe', 'name' => 'Lízing', 'balance' => 9_000, 'principal' => 15_000, 'payment' => 200, 'rate' => 5,
+            'next_payment' => CarbonImmutable::today()->addMonth()->toDateString(), 'color' => '#4c8dff',
+        ]);
+        $from = CarbonImmutable::today()->year + 3;
+
+        $r = $this->actingAs($this->user)
+            ->getJson("/retirement/simulate?year=2065&housing=600&contribution_mode=percent&contribution_pct=30&contribution_later_from=$from&contribution_later_income=1800")
+            ->assertOk();
+
+        // povinné platby neskôr = splátky 200 + bývanie 600; 30 % z (1 800 − 800)
+        $this->assertEquals(800, $r->json('rule.later.fixed'));
+        $this->assertEquals(300, $r->json('rule.later.monthly'));
+        $this->assertSame($from, $r->json('params.later_from'));
+    }
+
+    public function test_a_two_phase_plan_grows_with_the_later_contribution(): void
+    {
+        $svc = app(RetirementService::class);
+        $year = CarbonImmutable::today()->year;
+        $p = $svc->resolveParams($this->user, ['year' => $year + 20, 'monthly' => 100, 'monthly_later' => 500, 'later_from' => $year + 5]);
+
+        // 5 rokov po 100 €, potom 15 rokov po 500 € (pri nulovom výnose len súčet)
+        $this->assertSame(100.0 * 60 + 500.0 * 180, $svc->valueAtPlan(0, $p, 0.0, 20));
+        $this->assertGreaterThan($svc->valueAt(0, 100, 5.0, 20), $svc->valueAtPlan(0, $p, 5.0, 20));
+    }
+
+    public function test_the_missing_contribution_is_asked_for_the_later_phase(): void
+    {
+        $year = CarbonImmutable::today()->year;
+        $r = $this->project(0, ['year' => $year + 25, 'monthly' => 50, 'monthly_later' => 100, 'later_from' => $year + 4, 'spending' => 2_000]);
+
+        $this->assertFalse($r['freedom']['within_plan']);
+        $this->assertSame($year + 4, $r['freedom']['required_from']);
+
+        $hit = $this->project(0, ['year' => $year + 25, 'monthly' => 50, 'monthly_later' => $r['freedom']['required_monthly'], 'later_from' => $year + 4, 'spending' => 2_000]);
+        $this->assertTrue($hit['freedom']['within_plan']);
+    }
+
+    public function test_the_contribution_rule_is_saved(): void
+    {
+        $this->actingAs($this->user)->post('/retirement', [
+            'year' => 2060, 'birth_year' => 2004, 'monthly' => 0, 'withdrawal' => null,
+            'contribution_mode' => 'percent', 'contribution_pct' => 28,
+            'contribution_later_from' => 2029, 'contribution_later_income' => 1_500,
+        ])->assertRedirect();
+
+        $u = $this->user->fresh();
+        $this->assertSame(2004, $u->retire_birth_year);
+        $this->assertNull($u->retire_withdrawal);
+        $this->assertSame('percent', $u->retire_contribution['mode']);
+        $this->assertEquals(28, $u->retire_contribution['pct']);
+        $this->assertEquals(2029, $u->retire_contribution['later_from']);
+    }
+
+    public function test_a_portfolio_outside_etfs_is_reported(): void
+    {
+        foreach ([['VWCE', 'etf', 700], ['BTC', 'crypto', 300]] as [$ticker, $kind, $price]) {
+            $inv = Investment::create(['user_id' => $this->user->id, 'ticker' => $ticker, 'name' => $ticker, 'kind' => $kind,
+                'quote_source' => 'manual', 'current_price' => $price, 'color' => '#4c8dff']);
+            $inv->lots()->create(['type' => 'buy', 'units' => 1, 'price' => $price, 'date' => CarbonImmutable::today()->subMonth()->toDateString()]);
+            $inv->recomputeFromLots();
+        }
+
+        $this->actingAs($this->user)->get('/retirement')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page->where('allocation.crypto_pct', 30));
+    }
+
+    // ── Krypto a priemerná mzda ─────────────────────────────────────────
+
+    public function test_crypto_is_left_out_by_default_and_can_be_counted_two_ways(): void
+    {
+        $year = CarbonImmutable::today()->year + 20;
+        $base = ['year' => $year, 'monthly' => 0, 'crypto_value' => 4_000];
+        $mid = fn (array $r) => collect($r['scenarios'])->firstWhere('key', 'mid')['final'];
+
+        // portfólio 10 000 €, z toho 4 000 € krypto
+        $exclude = $this->project(10_000, $base);
+        $flat = $this->project(10_000, $base + ['crypto_mode' => 'flat']);
+        $stocks = $this->project(10_000, $base + ['crypto_mode' => 'stocks']);
+
+        $this->assertSame('exclude', $exclude['crypto']['mode']);
+        $this->assertEqualsWithDelta(6_000 * 1.05 ** 20, $mid($exclude), 1);
+        $this->assertEqualsWithDelta(6_000 * 1.05 ** 20 + 4_000, $mid($flat), 1);
+        $this->assertEqualsWithDelta(10_000 * 1.05 ** 20, $mid($stocks), 1);
+    }
+
+    public function test_the_page_compares_every_way_of_counting_crypto(): void
+    {
+        $inv = Investment::create(['user_id' => $this->user->id, 'ticker' => 'BTC', 'name' => 'Bitcoin', 'kind' => 'crypto',
+            'quote_source' => 'manual', 'current_price' => 50_000, 'color' => '#f7931a']);
+        $inv->lots()->create(['type' => 'buy', 'units' => 0.2, 'price' => 40_000, 'date' => CarbonImmutable::today()->subYear()->toDateString()]);
+        $inv->recomputeFromLots();
+
+        $r = $this->actingAs($this->user)->getJson('/retirement/simulate?year=2060&monthly=200&spending=1500&crypto_mode=flat')->assertOk();
+
+        $this->assertEquals(10_000, $r->json('crypto.value'));
+        $this->assertSame('flat', $r->json('crypto.mode'));
+        $this->assertEqualsCanonicalizing(['exclude', 'flat', 'stocks'], array_keys($r->json('crypto_alternatives')));
+        $this->assertLessThanOrEqual($r->json('crypto_alternatives.exclude.freedom_year'), $r->json('crypto_alternatives.stocks.freedom_year'));
+    }
+
+    public function test_the_average_wage_reference_is_available_to_the_plan(): void
+    {
+        $this->actingAs($this->user)->get('/retirement')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->where('averageWage.gross', 1_620)
+                ->where('averageWage.net_estimate', 1_218)
+                ->where('plan.crypto_mode', 'exclude')
+            );
     }
 }

@@ -41,7 +41,8 @@ class AnalyticsController extends Controller
             'savingsRate' => $profiles->savingsRateReport(
                 $user,
                 $retirement->realReturnAssumption($user),
-                (float) ($user->retire_withdrawal ?? 4)
+                // tá istá miera výberu ako v dôchodkovom pláne (aj odporúčaná)
+                (float) $retirement->resolveParams($user)['withdrawal']
             ),
             // po rokoch — nezávisle od zvoleného obdobia
             'years' => $finance->yearlyHistory($user),

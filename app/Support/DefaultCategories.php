@@ -35,7 +35,7 @@ class DefaultCategories
                     'parent_id' => $parent->id,
                     'name' => $child['name'],
                     'type' => $group['type'],
-                    'is_savings' => $group['is_savings'] ?? false,
+                    'is_savings' => $child['is_savings'] ?? $group['is_savings'] ?? false,
                     'color' => $child['color'] ?? $group['color'],
                     'icon' => $child['icon'] ?? null,
                     'position' => $childPos++,

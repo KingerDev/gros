@@ -16,6 +16,15 @@ use Illuminate\Support\Facades\Cache;
  */
 class PortfolioAnalyticsService
 {
+    /**
+     * Ročný výnos z kratšieho obdobia je extrapolácia, nie výsledok: +5 % za
+     * tri mesiace by sa ukázalo ako +20 % ročne.
+     */
+    protected const MIN_DAYS_FOR_ANNUALIZED = 365;
+
+    /** Kolísavosť a prepady z menej než troch rokov sú prevažne šum. */
+    protected const MIN_MONTHS_FOR_RISK = 36;
+
     public function __construct(
         protected PortfolioHistoryService $history,
         protected MarketDataService $market,
@@ -59,8 +68,8 @@ class PortfolioAnalyticsService
             }
             usort($flows, fn ($a, $b) => $a['date']->timestamp <=> $b['date']->timestamp);
 
-            $xirrFlows = [...$flows, ['date' => CarbonImmutable::today(), 'amount' => $value]];
-            $xirr = $this->xirr($xirrFlows);
+            $annualize = $flows[0]['date']->diffInDays(CarbonImmutable::today()) >= self::MIN_DAYS_FOR_ANNUALIZED;
+            $xirr = $annualize ? $this->xirr([...$flows, ['date' => CarbonImmutable::today(), 'amount' => $value]]) : null;
 
             $invested = 0.0;   // celkovo vložené (súčet nákupov)
             $withdrawn = 0.0;  // celkovo vybraté (súčet predajov)
@@ -101,7 +110,7 @@ class PortfolioAnalyticsService
             $effective = $hhi > 0 ? 1 / $hhi : 0; // efektívny počet pozícií
 
             // --- porovnanie s benchmarkom ---
-            $benchmark = $this->benchmarkComparison($flows, $value);
+            $benchmark = $this->benchmarkComparison($flows, $value, $annualize);
 
             return [
                 'ok' => true,
@@ -113,6 +122,8 @@ class PortfolioAnalyticsService
                 'realized' => round($realized, 2),
                 'profit_total' => round($value - $cost + $realized, 2),
                 'xirr' => $xirr === null ? null : round($xirr * 100, 2),
+                // pod rok sa ročný výnos neukazuje — len hrubý zisk
+                'annualized' => $annualize,
                 'simple_pct' => $cost > 0 ? round(($value - $cost) / $cost * 100, 1) : 0,
                 'years_investing' => round($yearsInvesting, 1),
                 'first_purchase' => $first->toDateString(),
@@ -340,8 +351,8 @@ class PortfolioAnalyticsService
             $labels[] = $cur['ym'];
         }
 
-        if (count($returns) < 6) {
-            return ['ok' => false, 'months' => count($returns)];
+        if (count($returns) < self::MIN_MONTHS_FOR_RISK) {
+            return ['ok' => false, 'months' => count($returns), 'required' => self::MIN_MONTHS_FOR_RISK];
         }
 
         // maximálny prepad na krivke hodnoty očistenej o vklady (index výkonnosti)
@@ -393,7 +404,7 @@ class PortfolioAnalyticsService
      * @param  array<int, array{date: CarbonImmutable, amount: float}>  $flows
      * @return array<string, mixed>|null
      */
-    protected function benchmarkComparison(array $flows, float $portfolioValue): ?array
+    protected function benchmarkComparison(array $flows, float $portfolioValue, bool $annualize = true): ?array
     {
         if (! $flows) {
             return null;
@@ -423,7 +434,7 @@ class PortfolioAnalyticsService
         }
 
         $value = $units * $current;
-        $xirr = $this->xirr([...$flows, ['date' => CarbonImmutable::today(), 'amount' => $value]]);
+        $xirr = $annualize ? $this->xirr([...$flows, ['date' => CarbonImmutable::today(), 'amount' => $value]]) : null;
 
         return [
             'label' => 'MSCI World (IWDA)',

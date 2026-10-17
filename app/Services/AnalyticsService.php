@@ -82,7 +82,9 @@ class AnalyticsService
         $today = CarbonImmutable::today();
         $start = $today->startOfMonth()->subMonths($months - 1);
 
-        $rows = $user->transactions()->analyzed()
+        // Výdavky sú tu hrubé (aj s vkladmi do portfólia), príjmy ale musia byť
+        // skutočný zárobok — prijatá či vrátená pôžička príjem nie je.
+        $rows = $this->classifier->excludeNonIncome($user->transactions()->analyzed(), $user)
             ->where('type', '!=', 'transfer')
             ->where('date', '>=', $start->toDateString())
             ->selectRaw(Transaction::yearMonth().' as ym, type, '.Transaction::netSum('amount'))

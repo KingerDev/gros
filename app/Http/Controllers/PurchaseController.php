@@ -2,11 +2,10 @@
 
 namespace App\Http\Controllers;
 
-use App\Services\EmergencyFundService;
 use App\Services\FinancialProfileService;
 use App\Services\OpportunityCostService;
-use App\Services\PortfolioAnalyticsService;
 use App\Services\RetirementService;
+use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -14,7 +13,8 @@ use Inertia\Response;
 
 /**
  * „Oplatí sa mi to?" — prevedie cenu nákupu na to, čo z tej sumy mohlo byť,
- * a hlavne na čas: o koľko neskôr kvôli nej príde finančná sloboda.
+ * keby išla do portfólia. V troch scenároch výnosu, lebo budúci výnos nikto
+ * nepozná — a v dnešných eurách, aby sa dal porovnať s dnešnými cenami.
  *
  * Nemá to od nákupu odhovárať. Má ukázať cenu v mene, ktorú peniaze
  * neukazujú — a keď to aj tak kúpiš, aspoň vieš, že to naozaj chceš.
@@ -23,9 +23,6 @@ class PurchaseController extends Controller
 {
     public function __construct(
         protected FinancialProfileService $profiles,
-        protected PortfolioAnalyticsService $portfolio,
-        protected EmergencyFundService $reserve,
-        protected RetirementService $retirement,
         protected OpportunityCostService $cost,
     ) {}
 
@@ -36,21 +33,15 @@ class PurchaseController extends Controller
 
         return Inertia::render('gros/Purchase', [
             'context' => [
-                'real_return' => $this->retirement->realReturnAssumption($user),
+                'scenarios' => RetirementService::SCENARIOS,
                 'retire_year' => (int) ($user->retire_year ?? 2065),
                 'monthly_income' => (float) ($profile['measured']['income'] ?? 0),
-                'monthly_surplus' => (float) ($profile['measured']['recurring_savings'] ?? 0),
-                'monthly_contribution' => (float) ($this->portfolio->investmentContributions($user)['recommended'] ?? 0),
-            ],
-            // to isté pre výdavky, ktoré už robíš: čo stojí každá kategória do dôchodku
-            'opportunityCost' => [
-                'context' => $this->cost->context($user),
-                'categories' => $this->cost->categories($user, 12, 6),
+                'monthly_surplus' => (float) ($profile['measured']['savings'] ?? 0),
             ],
         ]);
     }
 
-    /** Dopad jedného nákupu (JSON) — počíta sa nad tou istou projekciou. */
+    /** Čím by suma bola po rokoch, v troch scenároch (JSON). */
     public function calculate(Request $request): JsonResponse
     {
         $data = $request->validate([
@@ -60,29 +51,37 @@ class PurchaseController extends Controller
 
         $user = $request->user();
         $profile = $this->profiles->forUser($user);
-        $reserve = $this->reserve->forUser($user);
+        $amount = (float) $data['amount'];
+        $recurring = (bool) ($data['recurring'] ?? false);
 
-        $overrides = [
-            'spend' => $data['amount'],
-            'spend_monthly' => (bool) ($data['recurring'] ?? false),
-            'monthly' => (float) ($this->portfolio->investmentContributions($user)['recommended'] ?? 0),
-            'spending' => $reserve['after_school']['estimate'] ?? ($profile['measured']['consumption'] ?? null),
-        ];
+        $thisYear = CarbonImmutable::today()->year;
+        $toRetirement = max(1, (int) ($user->retire_year ?? 2065) - $thisYear);
 
-        $result = $this->retirement->cachedProject(
-            $user,
-            (float) $profile['assets']['portfolio'],
-            array_filter($overrides, fn ($v) => $v !== null)
-        );
+        $horizons = [];
+        foreach (array_unique([5, 10, 20, $toRetirement]) as $years) {
+            if ($years > $toRetirement) {
+                continue;
+            }
+            $row = ['years' => $years, 'year' => $thisYear + $years];
+            foreach (RetirementService::SCENARIOS as $key => $s) {
+                $row[$key] = $recurring
+                    ? $this->cost->fromMonthly($amount, $years, $s['return'])
+                    : $this->cost->fromLumpSum($amount, $years, $s['return']);
+            }
+            $horizons[] = $row;
+        }
+        usort($horizons, fn ($a, $b) => $a['years'] <=> $b['years']);
 
         $income = (float) ($profile['measured']['income'] ?? 0);
-        $surplus = (float) ($profile['measured']['recurring_savings'] ?? 0);
-        $amount = (float) $data['amount'];
+        $surplus = (float) ($profile['measured']['savings'] ?? 0);
 
         return response()->json([
-            'ok' => $result['ok'] ?? false,
-            'purchase' => $result['purchase'] ?? null,
-            'engine' => $result['engine'] ?? null,
+            'ok' => true,
+            'purchase' => [
+                'amount' => round($amount, 2),
+                'recurring' => $recurring,
+                'horizons' => $horizons,
+            ],
             // aby suma dostala aj mierku voči tomu, čo mesačne zarobíš
             'context' => [
                 'income_share' => $income > 0 ? round($amount / $income * 100, 1) : null,

@@ -31,11 +31,11 @@ interface LoanPlan {
     with_extra: { extra: number; months: number; months_saved: number; payoff_date: string; interest_saved: number } | null;
     compare: {
         horizon_months: number;
-        real_return: number;
+        guaranteed_return: number;
+        expected_return: number;
         repay_first: number;
         invest_first: number;
         advantage: number;
-        verdict: 'invest' | 'repay';
     } | null;
 }
 
@@ -45,7 +45,9 @@ const props = defineProps<{
     totals: { owed: number; lent: number; monthlyPayment: number };
     plan: {
         extra: number;
+        expected_return: number;
         real_return: number;
+        inflation: number;
         loans: Record<number, LoanPlan>;
         priority_id: number | null;
     };
@@ -331,7 +333,8 @@ function showProgress(l: Loan): boolean {
                 <div style="font-size: 12.5px; color: #8a8c9a; font-weight: 600; line-height: 1.6; margin-top: 6px">
                     Keby ti mesačne zvýšilo niečo navyše — má to ísť na splátku, alebo do portfólia? Obe cesty porovnávame k tomu istému dátumu, kedy
                     by úver skončil aj bez mimoriadnych splátok. Vtedy si v oboch prípadoch bez dlhu, takže rozhoduje len to, čo zostane v portfóliu.
-                    Očakávaný reálny výnos {{ num(plan.real_return, 1) }} % po inflácii.
+                    Portfólio počíta s očakávaným výnosom {{ num(plan.expected_return, 1) }} % ročne ({{ num(plan.real_return, 0) }} % po inflácii +
+                    {{ num(plan.inflation, 0) }} % inflácia) — nominálne, rovnako ako úrok úveru.
                 </div>
 
                 <div style="display: flex; align-items: center; gap: 12px; margin-top: 16px; flex-wrap: wrap">
@@ -391,25 +394,17 @@ function showProgress(l: Loan): boolean {
                         <div style="display: flex; flex-wrap: wrap; gap: 22px; margin-top: 14px">
                             <div>
                                 <div style="font-size: 11px; font-weight: 700; color: #8a8c9a">Splácať skôr</div>
-                                <div
-                                    class="font-display"
-                                    style="font-weight: 800; font-size: 20px; margin-top: 3px"
-                                    :style="{ color: d.plan.compare!.verdict === 'repay' ? '#2ba35a' : '#20212e' }"
-                                >
+                                <div class="font-display" style="font-weight: 800; font-size: 20px; margin-top: 3px">
                                     {{ eur(d.plan.compare!.repay_first) }}
                                 </div>
                                 <div style="font-size: 11px; color: #9a9cab; font-weight: 600; margin-top: 2px">v portfóliu po doplatení</div>
                             </div>
                             <div>
                                 <div style="font-size: 11px; font-weight: 700; color: #8a8c9a">Investovať hneď</div>
-                                <div
-                                    class="font-display"
-                                    style="font-weight: 800; font-size: 20px; margin-top: 3px"
-                                    :style="{ color: d.plan.compare!.verdict === 'invest' ? '#2ba35a' : '#20212e' }"
-                                >
+                                <div class="font-display" style="font-weight: 800; font-size: 20px; margin-top: 3px">
                                     {{ eur(d.plan.compare!.invest_first) }}
                                 </div>
-                                <div style="font-size: 11px; color: #9a9cab; font-weight: 600; margin-top: 2px">v portfóliu, dlh podľa plánu</div>
+                                <div style="font-size: 11px; color: #9a9cab; font-weight: 600; margin-top: 2px">ak trh prinesie očakávané</div>
                             </div>
                             <div>
                                 <div style="font-size: 11px; font-weight: 700; color: #8a8c9a">Merané k</div>
@@ -425,37 +420,35 @@ function showProgress(l: Loan): boolean {
                         <div
                             style="
                                 display: flex;
-                                align-items: center;
+                                align-items: flex-start;
                                 gap: 9px;
                                 border-radius: 12px;
                                 padding: 11px 14px;
                                 margin-top: 14px;
                                 font-size: 12.5px;
-                                font-weight: 700;
-                                line-height: 1.5;
-                            "
-                            :style="
-                                d.plan.compare!.verdict === 'invest'
-                                    ? { background: '#eef6ff', color: '#2a6ebd' }
-                                    : { background: '#fff6e5', color: '#8a6516' }
+                                font-weight: 600;
+                                line-height: 1.55;
+                                background: #fff;
+                                color: #6a6c7a;
                             "
                         >
-                            <span style="font-size: 15px">{{ d.plan.compare!.verdict === 'invest' ? '📈' : '🏦' }}</span>
-                            <span v-if="d.plan.compare!.verdict === 'invest'">
-                                Investuj — pri úroku {{ num(Number(d.loan.rate), 1) }} % skončíš o
-                                {{ eur(Math.abs(d.plan.compare!.advantage)) }} lepšie, než keby si splácal rýchlejšie.
-                            </span>
-                            <span v-else>
-                                Splácaj rýchlejšie — úrok {{ num(Number(d.loan.rate), 1) }} % je drahší než očakávaný výnos, získaš tým
-                                {{ eur(Math.abs(d.plan.compare!.advantage)) }}.
+                            <span style="font-size: 15px">⚖️</span>
+                            <span>
+                                Splácaním máš <b style="color: #20212e">istých {{ num(d.plan.compare!.guaranteed_return, 1) }} %</b>, investovaním
+                                <b style="color: #20212e">očakávaných ~{{ num(d.plan.compare!.expected_return, 1) }} %</b>, ktoré môžu vyjsť aj menej.
+                                <template v-if="d.plan.compare!.advantage > 0">
+                                    Ak sa očakávanie naplní, investovanie vychádza o {{ eur(d.plan.compare!.advantage) }} lepšie.
+                                </template>
+                                <template v-else>
+                                    Splácanie vychádza lepšie o {{ eur(Math.abs(d.plan.compare!.advantage)) }} aj bez rizika.
+                                </template>
                             </span>
                         </div>
                     </div>
                 </div>
 
                 <div style="font-size: 11.5px; color: #9a9cab; font-weight: 600; line-height: 1.6; margin-top: 14px">
-                    Porovnanie neráta s tým, že splatený dlh je istota a výnos portfólia nie. Pri podobných číslach je splatenie dlhu pokojnejšia
-                    voľba — a najprv patrí núdzový fond, až potom čokoľvek iné.
+                    Keď sú si čísla blízko, je splatenie dlhu pokojnejšia voľba — istota má tiež cenu. A pred oboma patrí núdzový fond.
                 </div>
             </div>
         </div>

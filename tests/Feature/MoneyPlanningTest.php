@@ -2,11 +2,7 @@
 
 namespace Tests\Feature;
 
-use App\Models\Account;
-use App\Models\Category;
 use App\Models\Loan;
-use App\Models\Subscription;
-use App\Models\Transaction;
 use App\Models\User;
 use App\Services\LoanPlanService;
 use App\Services\OpportunityCostService;
@@ -52,55 +48,6 @@ class MoneyPlanningTest extends TestCase
         $this->assertEqualsWithDelta(1_790.85, app(OpportunityCostService::class)->fromLumpSum(1_000, 10, 6.0), 0.5);
     }
 
-    public function test_every_subscription_gets_its_lifetime_price(): void
-    {
-        Subscription::create([
-            'user_id' => $this->user->id, 'name' => 'Netflix', 'amount' => 15,
-            'cycle' => 'monthly', 'next_payment' => CarbonImmutable::today()->toDateString(), 'color' => '#e8544e',
-        ]);
-        // ročné predplatné sa musí normalizovať na mesiac
-        $yearly = Subscription::create([
-            'user_id' => $this->user->id, 'name' => 'Doména', 'amount' => 120,
-            'cycle' => 'yearly', 'next_payment' => CarbonImmutable::today()->toDateString(), 'color' => '#4c8dff',
-        ]);
-
-        $rows = app(OpportunityCostService::class)->subscriptions($this->user);
-
-        $this->assertCount(2, $rows);
-        $this->assertSame(10.0, $rows[$yearly->id]['monthly']);
-        foreach ($rows as $row) {
-            // 30 rokov zhodnocovania musí byť násobne viac než súčet vkladov
-            $this->assertGreaterThan($row['monthly'] * 12 * 30, $row['lifetime']);
-        }
-    }
-
-    public function test_category_lifetime_cost_uses_completed_months_only(): void
-    {
-        $account = Account::create(['user_id' => $this->user->id, 'name' => 'Bežný', 'type' => 'cash', 'balance' => 0, 'color' => '#4c8dff']);
-        $category = Category::create(['user_id' => $this->user->id, 'name' => 'Reštaurácie', 'type' => 'expense', 'color' => '#ff922b', 'icon' => '🍔', 'position' => 1]);
-
-        // 200 € mesačne po dobu 12 ukončených mesiacov
-        for ($i = 1; $i <= 12; $i++) {
-            Transaction::create([
-                'user_id' => $this->user->id, 'account_id' => $account->id, 'category_id' => $category->id,
-                'type' => 'expense', 'amount' => 200,
-                'date' => CarbonImmutable::today()->subMonthsNoOverflow($i)->startOfMonth()->addDays(3)->toDateString(),
-            ]);
-        }
-        // prebiehajúci mesiac sa počítať nesmie
-        Transaction::create([
-            'user_id' => $this->user->id, 'account_id' => $account->id, 'category_id' => $category->id,
-            'type' => 'expense', 'amount' => 9_999, 'date' => CarbonImmutable::today()->toDateString(),
-        ]);
-
-        $rows = app(OpportunityCostService::class)->categories($this->user, 12, 6);
-
-        $this->assertCount(1, $rows);
-        $this->assertSame($category->id, $rows[0]['category_id']);
-        $this->assertSame(200.0, $rows[0]['monthly']);
-        $this->assertGreaterThan(200 * 12 * 30, $rows[0]['lifetime']);
-    }
-
     // ── Plán úverov ─────────────────────────────────────────────────────
 
     public function test_interest_free_loan_pays_off_by_simple_division(): void
@@ -112,8 +59,9 @@ class MoneyPlanningTest extends TestCase
         $this->assertTrue($plan['ok']);
         $this->assertSame(12, $plan['months']);
         $this->assertSame(0.0, $plan['total_interest']);
-        // bez úroku niet čo ušetriť, takže investovanie vyhráva vždy
-        $this->assertSame('invest', $plan['compare']['verdict']);
+        // bez úroku je istý výnos zo splácania nulový
+        $this->assertSame(0.0, $plan['compare']['guaranteed_return']);
+        $this->assertGreaterThan(0, $plan['compare']['advantage']);
     }
 
     public function test_amortisation_matches_a_known_mortgage(): void
@@ -138,8 +86,9 @@ class MoneyPlanningTest extends TestCase
         $this->assertLessThan($plan['months'], $plan['with_extra']['months']);
         $this->assertGreaterThan(0, $plan['with_extra']['months_saved']);
         $this->assertGreaterThan(0, $plan['with_extra']['interest_saved']);
-        // úrok 8 % je vyšší než reálny výnos 5 % → splácať sa oplatí viac
-        $this->assertSame('repay', $plan['compare']['verdict']);
+        // úrok 8 % je vyšší než očakávaných 5 % → splácanie vychádza lepšie aj bez rizika
+        $this->assertLessThan(0, $plan['compare']['advantage']);
+        $this->assertSame(8.0, $plan['compare']['guaranteed_return']);
         // obe stratégie sa merajú na rovnakom horizonte
         $this->assertSame($plan['months'], $plan['compare']['horizon_months']);
     }
@@ -150,8 +99,23 @@ class MoneyPlanningTest extends TestCase
 
         $plan = app(LoanPlanService::class)->forLoan($loan, 200, 7.0);
 
-        $this->assertSame('invest', $plan['compare']['verdict']);
         $this->assertGreaterThan(0, $plan['compare']['advantage']);
+        $this->assertArrayNotHasKey('verdict', $plan['compare']);
+    }
+
+    public function test_the_loan_rate_is_compared_with_a_nominal_return(): void
+    {
+        // 6 % úver: oproti reálnym 5 % by vyšlo „splácaj", oproti nominálnym
+        // ~7,1 % (5 % + inflácia) investovanie vychádza lepšie — sadzba úveru
+        // je nominálna, porovnávať ju treba s nominálnym výnosom
+        $this->loan(balance: 20_000, payment: 300, rate: 6.0);
+
+        $plan = app(LoanPlanService::class)->forUser($this->user, 200);
+        $compare = reset($plan['loans'])['compare'];
+
+        $this->assertSame(7.1, $plan['expected_return']);
+        $this->assertSame(7.1, $compare['expected_return']);
+        $this->assertGreaterThan(0, $compare['advantage']);
     }
 
     public function test_the_two_strategies_are_measured_on_the_same_horizon(): void

@@ -30,18 +30,9 @@ class ReserveController extends Controller
     public function store(Request $request): RedirectResponse
     {
         $data = $request->validate([
-            'income_type' => ['required', Rule::in(['stable', 'variable', 'self_employed', 'mixed', 'student'])],
-            'graduation_year' => ['nullable', 'integer', 'min:2026', 'max:2060'],
-            'post_graduation_expenses' => ['nullable', 'numeric', 'min:0', 'max:100000'],
-            'after_school_city' => ['nullable', Rule::in(array_keys(config('gros.reference.rent.by_city')))],
-            'after_school_size' => ['nullable', Rule::in(array_keys(config('gros.reference.rent.by_size')))],
-            'after_school_share' => ['nullable', 'numeric', 'min:0.25', 'max:1'],
-            'household' => ['required', Rule::in(['single', 'dual_income', 'single_income_couple', 'dependents'])],
-            'unemployment_benefit' => ['required', 'boolean'],
-            'health_risk' => ['required', 'boolean'],
+            'months' => ['required', 'numeric', 'min:1', 'max:12'],
             'source' => ['required', Rule::in(['all_cash', 'account', 'cash_minus_month'])],
             'account_id' => ['nullable', 'integer'],
-            'months_override' => ['nullable', 'numeric', 'min:0', 'max:24'],
             'essential_category_ids' => ['nullable', 'array'],
             'essential_category_ids.*' => ['integer'],
             'recurring_transaction_ids' => ['nullable', 'array'],

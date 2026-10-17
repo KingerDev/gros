@@ -26,13 +26,14 @@ class ExpenseClassifier
     public const SAVINGS_GROUPS = ['investície'];
 
     /**
-     * Id kategórií, ktoré sú v skutočnosti sporenie.
+     * Id kategórií, ktoré sú len presun peňazí — na výdavkovej strane vklady
+     * do portfólia, na príjmovej prijaté či vrátené pôžičky.
      *
      * @return array<int, int>
      */
     public function savingsCategoryIds(User $user): array
     {
-        $categories = $user->categories()->where('type', 'expense')->get(['id', 'name', 'parent_id', 'is_savings']);
+        $categories = $user->categories()->get(['id', 'name', 'parent_id', 'is_savings']);
         $flagged = $categories->where('is_savings', true)->pluck('id');
 
         // podkategórie dedia príznak zo skupiny
@@ -45,16 +46,45 @@ class ExpenseClassifier
     }
 
     /**
-     * Odfiltruje z dotazu presuny do portfólia. Používa sa všade, kde ide
-     * o spotrebu — teda pri výdavkoch, miere úspor aj rezerve.
+     * Odfiltruje z dotazu presuny — vklady do portfólia, prijaté pôžičky aj
+     * splátky peňazí, ktoré si niekomu požičal. Používa sa všade, kde ide
+     * o spotrebu a príjem — teda pri výdavkoch, miere úspor aj rezerve.
      *
      * @param  Builder|\Illuminate\Database\Query\Builder  $query
      */
     public function excludeSavings($query, User $user)
     {
         $ids = $this->savingsCategoryIds($user);
+        if ($ids) {
+            // whereNotIn by vyradil aj transakcie bez kategórie (NULL NOT IN …)
+            $query->where(fn ($q) => $q->whereNull('category_id')->orWhereNotIn('category_id', $ids));
+        }
 
-        return $ids ? $query->whereNotIn('category_id', $ids) : $query;
+        return $this->excludeLoanIncome($query);
+    }
+
+    /**
+     * Vyradí len príjmy, ktoré nie sú zárobok (pôžičky), výdavky nechá celé.
+     * Pre hrubé prehľady, kde vklady do portfólia ešte patria medzi výdavky.
+     *
+     * @param  Builder|\Illuminate\Database\Query\Builder  $query
+     */
+    public function excludeNonIncome($query, User $user)
+    {
+        $ids = $this->savingsCategoryIds($user);
+
+        return $query->where(fn ($q) => $q->where('type', '!=', 'income')->orWhere(function ($q) use ($ids) {
+            if ($ids) {
+                $q->where(fn ($q) => $q->whereNull('category_id')->orWhereNotIn('category_id', $ids));
+            }
+            $this->excludeLoanIncome($q);
+        }));
+    }
+
+    /** Splátka peňazí, ktoré si niekomu požičal (úver „požičal som"), nie je zárobok. */
+    protected function excludeLoanIncome($query)
+    {
+        return $query->where(fn ($q) => $q->where('type', '!=', 'income')->orWhereNull('source')->orWhere('source', '!=', 'loan'));
     }
 
     /**

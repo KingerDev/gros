@@ -37,9 +37,12 @@ class SpendingPlanService
         // Voľné na míňanie tento mesiac
         $disposable = $income - $fixed - $savings;
 
-        // Už minuté tento mesiac (len výdavky, bez prevodov, po odrátaní vrátení)
+        // Už minuté tento mesiac (len výdavky, bez prevodov, po odrátaní vrátení).
+        // Automaticky zaúčtované predplatné a splátky sú už vo $fixed — keby sa
+        // rátali aj tu, po ich zaplatení by sa odrátali dvakrát.
         $rows = $this->classifier->excludeSavings($user->transactions()->analyzed(), $user)
             ->where('type', 'expense')
+            ->where(fn ($q) => $q->whereNull('source')->orWhereNotIn('source', ['subscription', 'loan']))
             ->whereDate('date', '>=', $monthStart->toDateString())->whereDate('date', '<=', $monthEnd->toDateString())
             ->get(['event_id', 'amount', 'refunded_amount']);
         $spent = (float) $rows->sum('net_amount');
@@ -49,8 +52,9 @@ class SpendingPlanService
         $dailyLimit = max(0, $safeToSpend) / $daysLeft;
 
         // Projekcia podľa tempa (koľko minie do konca mesiaca pri tomto tempe).
-        // Udalosť (dovolenka) sa ráta raz — inak by týždeň v Dubline tvrdil,
-        // že takto sa bude míňať celý mesiac.
+        // Fixné platby sa nepremietajú — sú vo $fixed, nie v $spent. Udalosť
+        // (dovolenka) sa ráta raz — inak by týždeň v Dubline tvrdil, že takto
+        // sa bude míňať celý mesiac.
         $routineSpent = $spent - $eventSpent;
         $projectedSpend = $eventSpent + ($dayOfMonth > 0 ? $routineSpent / $dayOfMonth * $daysInMonth : 0);
         $projectedLeftover = $disposable - $projectedSpend;

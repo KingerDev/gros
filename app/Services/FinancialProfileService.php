@@ -12,8 +12,8 @@ use Carbon\CarbonImmutable;
  */
 class FinancialProfileService
 {
-    /** Koľko ukončených mesiacov sa berie do priemerov. */
-    protected const WINDOW = 6;
+    /** Koľko ukončených mesiacov sa berie do priemerov — rovnako ako pri rezerve. */
+    protected const WINDOW = 12;
 
     public function __construct(
         protected AnalyticsService $analytics,
@@ -24,19 +24,18 @@ class FinancialProfileService
     /** @return array<string, mixed> */
     public function forUser(User $user): array
     {
-        $months = $this->completedMonths($user, 24);
+        $months = $this->savingsAdjusted($user, 24);
         $recent = array_slice($months, -self::WINDOW);
 
         $income = $this->avg($recent, 'income');
-        $expense = $this->avg($recent, 'expense');
-        $net = $income - $expense;
-
-        // Čo z „výdavkov" nie je spotreba: peniaze poslané do portfólia
-        // a jednorazovky. Bez tohto rozlíšenia vychádza záporná miera úspor
-        // aj človeku, ktorý si poctivo odkladá.
-        $adjust = $this->nonConsumption($user, count($recent) ?: 1);
-        $recurringExpense = max(0, $expense - $adjust['savings'] - $adjust['one_off']);
-        $recurringNet = $income - $recurringExpense;
+        $gross = $this->avg($recent, 'gross_expense');
+        $savingsFlow = $this->avg($recent, 'savings_flow');
+        // spotreba = výdavky bez peňazí, ktoré len odišli do portfólia.
+        // Jednorazovky aj udalosti v nej ostávajú — život ich prináša stále,
+        // len nie každý mesiac tie isté.
+        $consumption = $this->avg($recent, 'expense');
+        $left = $income - $consumption;
+        $housing = $recent ? $this->housingTotal($user, $recent) / count($recent) : 0.0;
 
         $portfolio = $this->finance->portfolio($user)['value'];
         $cash = $this->finance->cash($user);
@@ -48,19 +47,15 @@ class FinancialProfileService
                 'months' => count($recent),
                 'window' => self::WINDOW,
                 'income' => round($income, 2),
-                'expense' => round($expense, 2),
-                'savings' => round($net, 2),
-                'savings_rate' => $income > 0 ? round($net / $income * 100, 1) : null,
-                // to isté, ale bez sporenia a jednorazoviek — čo naozaj ostáva
-                'savings_flow' => round($adjust['savings'], 2),
-                'one_off' => round($adjust['one_off'], 2),
-                // spotreba = výdavky bez peňazí, ktoré len odišli do portfólia.
-                // Jednorazovky sa nechávajú — život ich prináša aj v dôchodku,
-                // len nie každý mesiac tie isté.
-                'consumption' => round(max(0, $expense - $adjust['savings']), 2),
-                'recurring_expense' => round($recurringExpense, 2),
-                'recurring_savings' => round($recurringNet, 2),
-                'recurring_savings_rate' => $income > 0 ? round($recurringNet / $income * 100, 1) : null,
+                // hrubé výdavky vrátane vkladov do portfólia
+                'expense' => round($gross, 2),
+                'savings_flow' => round($savingsFlow, 2),
+                'consumption' => round($consumption, 2),
+                // z toho bývanie — kto ho dnes neplatí, má dnešnú spotrebu podhodnotenú
+                'housing' => round($housing, 2),
+                // čo z príjmu ostane po spotrebe (vrátane toho, čo ide do portfólia)
+                'savings' => round($left, 2),
+                'savings_rate' => $income > 0 ? round($left / $income * 100, 1) : null,
                 'has_data' => count($recent) > 0 && $income > 0,
             ],
             // majetok, z ktorého projekcia štartuje
@@ -70,64 +65,89 @@ class FinancialProfileService
                 'debt' => round($debt, 2),
                 'net_worth' => round($cash + $portfolio - $debt, 2),
             ],
-            'reserve' => $this->finance->reserve($user),
             'series' => $months,
         ];
     }
 
     /**
-     * Mesačný priemer toho, čo vo výdavkoch nie je spotreba, za okno priemerov.
+     * Ukončené mesiace s výdavkami očistenými o presuny do portfólia.
+     * `expense` = spotreba, `gross_expense` = všetko, čo odišlo z účtu.
      *
-     * @return array{savings: float, one_off: float}
+     * @return array<int, array<string, mixed>>
      */
-    protected function nonConsumption(User $user, int $months): array
+    protected function savingsAdjusted(User $user, int $window): array
     {
-        $byMonth = $this->monthlyNonConsumption($user, self::WINDOW);
+        $months = $this->completedMonths($user, $window);
+        $flows = $this->monthlySavingsFlow($user, $window);
 
-        return [
-            'savings' => array_sum(array_column($byMonth, 'savings')) / $months,
-            'one_off' => array_sum(array_column($byMonth, 'one_off')) / $months,
-        ];
+        foreach ($months as $i => $m) {
+            $flow = $flows[$m['ym']] ?? 0.0;
+            $months[$i]['gross_expense'] = $m['expense'];
+            $months[$i]['gross_net'] = $m['net'];
+            $months[$i]['savings_flow'] = $flow;
+            $months[$i]['expense'] = max(0, $m['expense'] - $flow);
+            $months[$i]['net'] = $m['income'] - $months[$i]['expense'];
+        }
+
+        return $months;
     }
 
     /**
-     * Presuny do portfólia a jednorazové výdavky po mesiacoch.
+     * Súčet výdavkov na bývanie (skupina „Bývanie" a jej podkategórie)
+     * v daných mesiacoch.
      *
-     * @return array<string, array{savings: float, one_off: float}>
+     * @param  array<int, array<string, mixed>>  $months
      */
-    protected function monthlyNonConsumption(User $user, int $window): array
+    protected function housingTotal(User $user, array $months): float
     {
+        $categories = $user->categories()->where('type', 'expense')->get(['id', 'name', 'parent_id']);
+        $groupIds = $categories->filter(fn ($c) => mb_strtolower($c->name) === 'bývanie')->pluck('id');
+        $ids = $categories
+            ->filter(fn ($c) => $groupIds->contains($c->id) || $groupIds->contains($c->parent_id))
+            ->pluck('id')
+            ->all();
+        if (! $ids) {
+            return 0.0;
+        }
+
+        $yms = array_column($months, 'ym');
+
+        return (float) $user->transactions()->analyzed()
+            ->where('type', 'expense')
+            ->whereIn('category_id', $ids)
+            ->whereDate('date', '>=', min($yms).'-01')
+            ->whereDate('date', '<=', CarbonImmutable::parse(max($yms).'-01')->endOfMonth()->toDateString())
+            ->get(['date', 'amount', 'refunded_amount'])
+            ->filter(fn ($t) => in_array($t->date->format('Y-m'), $yms, true))
+            ->sum('net_amount');
+    }
+
+    /**
+     * Presuny do portfólia zaúčtované ako výdavok, po mesiacoch.
+     *
+     * @return array<string, float>
+     */
+    protected function monthlySavingsFlow(User $user, int $window): array
+    {
+        $savingsIds = $this->classifier->savingsCategoryIds($user);
+        if (! $savingsIds) {
+            return [];
+        }
+
         $today = CarbonImmutable::today();
         $from = $today->startOfMonth()->subMonths($window);
         $to = $today->startOfMonth()->subDay();
 
-        $transactions = $user->transactions()->analyzed()
-            ->where('type', 'expense')
-            ->whereDate('date', '>=', $from->toDateString())->whereDate('date', '<=', $to->toDateString())
-            ->get(['id', 'category_id', 'event_id', 'date', 'amount', 'refunded_amount']);
-
-        if ($transactions->isEmpty()) {
-            return [];
-        }
-
-        $savingsIds = $this->classifier->savingsCategoryIds($user);
-        $isSavings = fn ($t) => $t->category_id !== null && in_array((int) $t->category_id, $savingsIds, true);
-
-        $consumption = $transactions->reject($isSavings);
-        $oneOffIds = $this->classifier->oneOffIds($consumption, $window);
-
         $out = [];
-        foreach ($transactions as $t) {
-            $ym = $t->date->format('Y-m');
-            $out[$ym] ??= ['savings' => 0.0, 'one_off' => 0.0];
-            $amount = (float) $t->net_amount;
-
-            if ($isSavings($t)) {
-                $out[$ym]['savings'] += $amount;
-            } elseif (in_array($t->id, $oneOffIds, true)) {
-                $out[$ym]['one_off'] += $amount;
-            }
-        }
+        $user->transactions()->analyzed()
+            ->where('type', 'expense')
+            ->whereIn('category_id', $savingsIds)
+            ->whereDate('date', '>=', $from->toDateString())->whereDate('date', '<=', $to->toDateString())
+            ->get(['date', 'amount', 'refunded_amount'])
+            ->each(function ($t) use (&$out) {
+                $ym = $t->date->format('Y-m');
+                $out[$ym] = ($out[$ym] ?? 0.0) + (float) $t->net_amount;
+            });
 
         return $out;
     }
@@ -135,24 +155,15 @@ class FinancialProfileService
     /**
      * Mesačný vývoj miery úspor + priemery za 3/6/12 mesiacov.
      *
+     * Presuny do portfólia sa od výdavkov odrátajú — odložené peniaze nie sú
+     * minuté. Jednorazovky nie: aj keď sa tá istá nezopakuje, nejaká príde
+     * vždy, a miera úspor bez nich by sľubovala viac, než človek naozaj odkladá.
+     *
      * @return array<string, mixed>
      */
     public function savingsRate(User $user): array
     {
-        $months = $this->completedMonths($user, 24);
-
-        // Presuny do portfólia a jednorazovky sa od výdavkov odrátajú —
-        // miera úspor má merať spotrebu, nie to, že si peniaze odložil.
-        $adjust = $this->monthlyNonConsumption($user, 24);
-        foreach ($months as $i => $m) {
-            $off = $adjust[$m['ym']] ?? ['savings' => 0.0, 'one_off' => 0.0];
-            $months[$i]['gross_expense'] = $m['expense'];
-            $months[$i]['gross_net'] = $m['net'];
-            $months[$i]['expense'] = max(0, $m['expense'] - $off['savings'] - $off['one_off']);
-            $months[$i]['net'] = $m['income'] - $months[$i]['expense'];
-            $months[$i]['savings_flow'] = $off['savings'];
-            $months[$i]['one_off'] = $off['one_off'];
-        }
+        $months = $this->savingsAdjusted($user, 24);
 
         $series = array_map(fn (array $m) => [
             'ym' => $m['ym'],
@@ -162,7 +173,6 @@ class FinancialProfileService
             'net' => round($m['net'], 2),
             'rate' => $m['income'] > 0 ? round($m['net'] / $m['income'] * 100, 1) : null,
             'savings_flow' => round($m['savings_flow'], 2),
-            'one_off' => round($m['one_off'], 2),
             'gross_rate' => $m['income'] > 0 ? round($m['gross_net'] / $m['income'] * 100, 1) : null,
         ], $months);
 
@@ -178,7 +188,6 @@ class FinancialProfileService
                 // to isté bez očistenia — na porovnanie, koľko robí rozdiel
                 'gross_rate' => $inc > 0 ? round($this->sum($slice, 'gross_net') / $inc * 100, 1) : null,
                 'savings_flow' => round($this->sum($slice, 'savings_flow'), 2),
-                'one_off' => round($this->sum($slice, 'one_off'), 2),
             ];
         }
 

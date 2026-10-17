@@ -3,17 +3,16 @@ import { useGros } from '@/composables/useGros';
 import { useElementSize } from '@vueuse/core';
 import { computed, ref } from 'vue';
 
-export interface FanPoint {
+/** Rok projekcie: tri scenáre výnosu a to, čo do toho roku vložíš. */
+export interface ScenarioPoint {
     year: number;
-    p10: number;
-    p25: number;
-    p50: number;
-    p75: number;
-    p90: number;
+    low: number;
+    mid: number;
+    high: number;
     contributed: number;
 }
 
-const props = defineProps<{ series: FanPoint[] }>();
+const props = defineProps<{ series: ScenarioPoint[]; labels: { low: string; mid: string; high: string } }>();
 
 const { eur, num, primary } = useGros();
 
@@ -27,7 +26,7 @@ const padL = 54;
 const padR = 10;
 const W = computed(() => Math.max(320, width.value));
 
-const maxV = computed(() => Math.max(1, ...props.series.map((p) => p.p90)));
+const maxV = computed(() => Math.max(1, ...props.series.map((p) => p.high)));
 
 function x(i: number): number {
     const n = props.series.length;
@@ -37,20 +36,19 @@ function y(v: number): number {
     return H - padB - (v / maxV.value) * (H - padT - padB);
 }
 
-/** Pás medzi dvoma percentilmi ako uzavretá plocha. */
-function band(lo: keyof FanPoint, hi: keyof FanPoint): string {
+/** Pás medzi dvoma scenármi ako uzavretá plocha. */
+function band(lo: keyof ScenarioPoint, hi: keyof ScenarioPoint): string {
     if (!props.series.length) return '';
     const up = props.series.map((p, i) => `${x(i).toFixed(1)},${y(p[hi] as number).toFixed(1)}`);
     const down = props.series.map((p, i) => `${x(i).toFixed(1)},${y(p[lo] as number).toFixed(1)}`).reverse();
     return `M${up.join(' L')} L${down.join(' L')} Z`;
 }
-function line(key: keyof FanPoint): string {
+function line(key: keyof ScenarioPoint): string {
     return props.series.map((p, i) => `${x(i).toFixed(1)},${y(p[key] as number).toFixed(1)}`).join(' ');
 }
 
-const outer = computed(() => band('p10', 'p90'));
-const inner = computed(() => band('p25', 'p75'));
-const median = computed(() => line('p50'));
+const range = computed(() => band('low', 'high'));
+const middle = computed(() => line('mid'));
 const contributed = computed(() => line('contributed'));
 
 /** Krátky zápis veľkých súm na os (1,2 mil.). */
@@ -68,9 +66,7 @@ const yTicks = computed(() => {
 // popisky rokov — každých 5 rokov, vždy prvý a posledný
 const xTicks = computed(() => {
     const n = props.series.length;
-    return props.series
-        .map((p, i) => ({ i, year: p.year }))
-        .filter((t) => t.i === 0 || t.i === n - 1 || t.year % 5 === 0);
+    return props.series.map((p, i) => ({ i, year: p.year })).filter((t) => t.i === 0 || t.i === n - 1 || t.year % 5 === 0);
 });
 
 const hoverIdx = ref<number | null>(null);
@@ -97,13 +93,12 @@ const tooltipLeft = computed(() => {
                 <text :x="padL - 8" :y="y(t.v) + 4" fill="#b0b2bd" font-size="10.5" font-weight="700" text-anchor="end">{{ t.label }}</text>
             </g>
 
-            <!-- pásma pravdepodobnosti: jeden odtieň, tmavší = pravdepodobnejší -->
-            <path :d="outer" :fill="primary" fill-opacity="0.12" />
-            <path :d="inner" :fill="primary" fill-opacity="0.22" />
+            <!-- rozpätie medzi opatrným a priaznivým scenárom — nie pravdepodobnosť, len „čo ak" -->
+            <path :d="range" :fill="primary" fill-opacity="0.14" />
 
-            <!-- vklady (nominálne) a medián -->
+            <!-- vklady a stredný scenár -->
             <polyline :points="contributed" fill="none" stroke="#b8b6ac" stroke-width="2" stroke-dasharray="5 4" stroke-linejoin="round" />
-            <polyline :points="median" fill="none" :stroke="primary" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" />
+            <polyline :points="middle" fill="none" :stroke="primary" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" />
 
             <!-- popisky rokov -->
             <text v-for="t in xTicks" :key="'x' + t.i" :x="x(t.i)" :y="H - 8" fill="#9a9cab" font-size="10.5" font-weight="700" text-anchor="middle">
@@ -113,31 +108,47 @@ const tooltipLeft = computed(() => {
             <template v-if="hover && hoverIdx !== null">
                 <line :x1="x(hoverIdx)" :x2="x(hoverIdx)" :y1="padT" :y2="H - padB" stroke="#20212e" stroke-width="1" stroke-opacity="0.25" />
                 <circle :cx="x(hoverIdx)" :cy="y(hover.contributed)" r="3.5" fill="#b8b6ac" stroke="#fff" stroke-width="2" />
-                <circle :cx="x(hoverIdx)" :cy="y(hover.p50)" r="4.5" :fill="primary" stroke="#fff" stroke-width="2" />
+                <circle :cx="x(hoverIdx)" :cy="y(hover.mid)" r="4.5" :fill="primary" stroke="#fff" stroke-width="2" />
             </template>
         </svg>
 
         <div
             v-if="hover"
-            style="position: absolute; top: 0; background: #20212e; color: #fff; padding: 9px 12px; border-radius: 11px; font-size: 12px; font-weight: 600; pointer-events: none; white-space: nowrap; box-shadow: 0 8px 20px rgba(20, 18, 30, 0.25)"
+            style="
+                position: absolute;
+                top: 0;
+                background: #20212e;
+                color: #fff;
+                padding: 9px 12px;
+                border-radius: 11px;
+                font-size: 12px;
+                font-weight: 600;
+                pointer-events: none;
+                white-space: nowrap;
+                box-shadow: 0 8px 20px rgba(20, 18, 30, 0.25);
+            "
             :style="{ left: tooltipLeft + 'px' }"
         >
             <div style="opacity: 0.7; margin-bottom: 4px">Rok {{ hover.year }}</div>
-            <div>Optimisticky: <b>{{ eur(hover.p90) }}</b></div>
-            <div>Stred: <b>{{ eur(hover.p50) }}</b></div>
-            <div>Pesimisticky: <b>{{ eur(hover.p10) }}</b></div>
+            <div>
+                {{ labels.high }}: <b>{{ eur(hover.high) }}</b>
+            </div>
+            <div>
+                {{ labels.mid }}: <b>{{ eur(hover.mid) }}</b>
+            </div>
+            <div>
+                {{ labels.low }}: <b>{{ eur(hover.low) }}</b>
+            </div>
             <div style="opacity: 0.7; margin-top: 3px">Vložené: {{ eur(hover.contributed) }}</div>
         </div>
 
         <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 16px; margin-top: 8px; padding-left: 4px">
             <span style="display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: #6a6c7a">
-                <span style="width: 14px; height: 3px; border-radius: 2px" :style="{ background: primary }"></span>Stredný scenár
+                <span style="width: 14px; height: 3px; border-radius: 2px" :style="{ background: primary }"></span>{{ labels.mid }}
             </span>
             <span style="display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: #6a6c7a">
-                <span style="width: 14px; height: 11px; border-radius: 3px" :style="{ background: primary, opacity: 0.22 }"></span>50 % scenárov
-            </span>
-            <span style="display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: #6a6c7a">
-                <span style="width: 14px; height: 11px; border-radius: 3px" :style="{ background: primary, opacity: 0.12 }"></span>80 % scenárov
+                <span style="width: 14px; height: 11px; border-radius: 3px" :style="{ background: primary, opacity: 0.14 }"></span>{{ labels.low }} až
+                {{ labels.high.toLowerCase() }}
             </span>
             <span style="display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: #6a6c7a">
                 <span style="width: 14px; height: 0; border-top: 3px dashed #b8b6ac"></span>Vložené peniaze

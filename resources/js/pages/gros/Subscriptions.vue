@@ -17,23 +17,13 @@ interface Subscription {
     category_id: number | null;
 }
 
-const props = defineProps<{
+defineProps<{
     subscriptions: Subscription[];
     accounts: { id: number; name: string }[];
     totals: { monthly: number; yearly: number; count: number };
-    opportunity: {
-        context: { years: number; retire_year: number; real_return: number };
-        per_subscription: Record<number, { id: number; monthly: number; lifetime: number }>;
-        total: number;
-    };
 }>();
 
-const { eur, num, grad, primary, primarySoft, hexToRgba, formatDate } = useGros();
-
-/** Čím by dané predplatné bolo do dôchodku, keby išlo do portfólia. */
-function lifetime(id: number): number | null {
-    return props.opportunity.per_subscription[id]?.lifetime ?? null;
-}
+const { eur, grad, primary, primarySoft, hexToRgba, formatDate } = useGros();
 
 const modalOpen = ref(false);
 const editSub = ref<Subscription | null>(null);
@@ -76,36 +66,6 @@ function cancel(s: Subscription) {
                     <div style="font-size: 13px; font-weight: 600; color: #8a8c9a">Aktívne predplatné</div>
                     <div class="font-display" style="font-weight: 800; font-size: 30px; letter-spacing: -1px; margin-top: 8px">
                         {{ totals.count }}
-                    </div>
-                </div>
-            </div>
-
-            <!-- Skutočná cena: čím by tie peniaze boli do dôchodku -->
-            <div
-                v-if="opportunity.total > 0"
-                style="
-                    display: flex;
-                    align-items: center;
-                    flex-wrap: wrap;
-                    gap: 16px;
-                    background: #fff;
-                    border-radius: 20px;
-                    padding: 20px 22px;
-                    box-shadow: 0 4px 18px rgba(60, 55, 40, 0.05);
-                    margin-top: 14px;
-                "
-            >
-                <span style="font-size: 22px">💸</span>
-                <div style="flex: 1; min-width: 240px">
-                    <div style="font-size: 13.5px; font-weight: 700; line-height: 1.55">
-                        Tvoje predplatné ťa do roku {{ opportunity.context.retire_year }} stojí
-                        <span class="font-display" style="font-size: 17px; font-weight: 800" :style="{ color: primary }">{{
-                            eur(opportunity.total)
-                        }}</span>
-                    </div>
-                    <div style="font-size: 11.5px; color: #9a9cab; font-weight: 600; margin-top: 4px; line-height: 1.55">
-                        Toľko by z {{ eur(totals.monthly) }} mesačne bolo za {{ opportunity.context.years }} rokov pri reálnom výnose
-                        {{ num(opportunity.context.real_return, 1) }} % ročne. V dnešných eurách — inflácia je už odrátaná.
                     </div>
                 </div>
             </div>
@@ -159,10 +119,7 @@ function cancel(s: Subscription) {
                     >
                     <div style="flex: 1; min-width: 0">
                         <div style="font-size: 14.5px; font-weight: 700">{{ s.name }}</div>
-                        <div style="font-size: 12px; color: #9a9cab; font-weight: 500">
-                            Ďalšia platba {{ formatDate(s.next_payment)
-                            }}<template v-if="lifetime(s.id)"> · do dôchodku {{ eur(lifetime(s.id) as number) }}</template>
-                        </div>
+                        <div style="font-size: 12px; color: #9a9cab; font-weight: 500">Ďalšia platba {{ formatDate(s.next_payment) }}</div>
                     </div>
                     <span style="font-size: 11px; font-weight: 700; color: #6a6c7a; background: #f1efe8; padding: 4px 9px; border-radius: 20px">{{
                         s.cycle === 'monthly' ? 'mesačne' : 'ročne'

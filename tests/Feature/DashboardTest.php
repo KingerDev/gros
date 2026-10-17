@@ -50,8 +50,10 @@ class DashboardTest extends TestCase
             ->has('years')
             ->missing('opportunityCost')
         );
+        // „Oplatí sa?" je už len kalkulačka na jeden nákup
         $this->get('/purchase')->assertInertia(fn (Assert $page) => $page
-            ->has('opportunityCost.categories')
+            ->has('context')
+            ->missing('opportunityCost')
         );
     }
 }

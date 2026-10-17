@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import Card from '@/components/gros/Card.vue';
-import FanChart from '@/components/gros/FanChart.vue';
+import ScenarioChart from '@/components/gros/ScenarioChart.vue';
 import { useGros } from '@/composables/useGros';
 import GrosLayout from '@/layouts/GrosLayout.vue';
 import { Head, Link, router } from '@inertiajs/vue3';
@@ -8,134 +8,70 @@ import { computed, onMounted, ref, watch } from 'vue';
 
 interface Plan {
     year: number;
-    duration: number;
+    birth_year: number | null;
     monthly: number;
-    index_contributions: boolean;
-    inflation: number;
-    fees: number;
-    haircut: number;
-    withdrawal: number;
-    engine: string;
-    target_income: number | null;
+    withdrawal: number | null;
     spending: number | null;
+    housing: number | null;
+    crypto_mode: CryptoMode;
+}
+type CryptoMode = 'exclude' | 'flat' | 'stocks';
+interface Recommended {
+    rate: number;
+    duration: number | null;
+    age: number | null;
+}
+/** Pravidlo vkladu, ako ho spočítal server. */
+interface Rule {
+    mode: 'fixed' | 'percent';
+    pct: number;
+    income: number;
+    fixed: number;
+    base: number;
+    monthly: number;
+    measured: number;
+    later: { from: number; income: number | null; fixed: number; fixed_is_own: boolean; base: number | null; monthly: number | null } | null;
 }
 interface Freedom {
     monthly_spending: number;
-    annual_spending: number;
     fire_number: number;
     progress_pct: number;
+    earliest: number | null;
     year: number | null;
-    year_safe: number | null;
-    year_lucky: number | null;
-    years_from_now: number | null;
-    years_earlier: number | null;
+    latest: number | null;
     within_plan: boolean;
     required_monthly: number | null;
     required_extra: number | null;
-    coast_year: number | null;
-    coast_years_from_now: number | null;
-    reached: boolean;
+    required_from: number | null;
     horizon_year: number;
 }
-interface SeriesPoint {
-    year: number;
-    contributed: number;
-    real_contributed: number;
-    p10: number;
-    p25: number;
-    p50: number;
-    p75: number;
-    p90: number;
-    real_p10: number;
-    real_p25: number;
-    real_p50: number;
-    real_p75: number;
-    real_p90: number;
-}
 interface Scenario {
-    monthly: number;
-    extra?: number;
-    nominal_p50: number;
-    real_p10: number;
-    real_p50: number;
-    real_p90: number;
-    income_p50: number;
-    contributed: number;
+    key: 'low' | 'mid' | 'high';
+    label: string;
+    real_return: number;
+    final: number;
+    income: number;
     freedom_year: number | null;
 }
 interface Projection {
     ok: boolean;
-    reason?: string;
+    params: {
+        year: number;
+        monthly: number;
+        withdrawal: number;
+        withdrawal_recommended: Recommended;
+        withdrawal_is_recommended: boolean;
+        spending: number | null;
+    };
+    rule: Rule;
+    crypto: { value: number; mode: CryptoMode; counted: number };
+    crypto_alternatives: Partial<Record<CryptoMode, { final: number; freedom_year: number | null }>>;
     years: number;
     start_value: number;
+    contributed: number;
+    series: { year: number; contributed: number; low: number; mid: number; high: number }[];
+    scenarios: Scenario[];
     freedom: Freedom | null;
-    scenarios: { base: Scenario; ladder: Scenario[]; custom: Scenario | null; fire_number: number | null };
-    withdrawal: {
-        duration: number;
-        annual_withdrawal: number;
-        success_pct: number;
-        depleted_year: number | null;
-        depleted_after_years: number | null;
-        median_left: number;
-        rates: { rate: number; needed: number; success_pct: number }[];
-        safe_rate: { rate: number; needed: number; success_pct: number } | null;
-        target: number;
-        current_rate: number;
-    } | null;
-    without_volatile?: {
-        excluded: number;
-        excluded_share: number;
-        start_value: number;
-        real_p50: number | null;
-        income_p50: number | null;
-        freedom_year: number | null;
-        years_later: number | null;
-    };
-    series: SeriesPoint[];
-    final: {
-        nominal: { p10: number; p50: number; p90: number };
-        real: { p10: number; p50: number; p90: number };
-        contributed: number;
-        real_contributed: number;
-        growth: number;
-        income: { p10: number; p50: number; p90: number };
-        income_nominal_p50: number;
-    };
-    target: null | {
-        income: number;
-        success_pct: number;
-        required_monthly: number | null;
-        required_monthly_safe: number | null;
-        required_delta: number | null;
-    };
-    engine: {
-        key: string;
-        label: string;
-        note: string;
-        currency: string;
-        from: string;
-        to: string;
-        months: number;
-        years: number;
-        short_history: boolean;
-        cagr: number;
-        vol: number;
-        worst_month: number;
-        best_month: number;
-        net_cagr: number;
-        real_cagr: number;
-        drag: number;
-    };
-    inflation: {
-        used: number;
-        sk_avg: number | null;
-        sk_avg20: number | null;
-        sk_latest: number | null;
-        sk_from: string | null;
-        sk_to: string | null;
-        eu_avg20: number | null;
-    };
-    paths: number;
 }
 
 interface Profile {
@@ -144,17 +80,13 @@ interface Profile {
         window: number;
         income: number;
         expense: number;
+        savings_flow: number;
+        consumption: number;
         savings: number;
         savings_rate: number | null;
-        savings_flow: number;
-        one_off: number;
-        recurring_expense: number;
-        recurring_savings: number;
-        recurring_savings_rate: number | null;
         has_data: boolean;
     };
     assets: { portfolio: number; cash: number; debt: number; net_worth: number };
-    reserve: { avgExpense: number; months: number | null };
     investable_cash: number;
 }
 
@@ -180,27 +112,81 @@ interface Contributions {
     };
 }
 
+interface SpendingBasis {
+    consumption: number;
+    housing_now: number;
+    housing_later: number | null;
+    auto: number;
+    missing_housing: boolean;
+    months: number;
+}
+
 const props = defineProps<{
-    plan: Plan;
+    plan: Plan & { withdrawal_recommended: Recommended };
+    rule: Rule;
+    spending_basis: SpendingBasis;
     profile: Profile;
     contributions: Contributions;
-    engines: { key: string; label: string; note: string; since: number; years: number; short_history: boolean }[];
-    longestEngine: { key: string; label: string; since: number; years: number };
-    inflationHistory: { avg: number; avg20: number; latest: number; from: string; to: string } | null;
+    allocation: { other_pct: number; crypto_pct: number; stock_pct: number };
+    averageWage: { year: number; gross: number; net_estimate: number; source: string; url: string };
 }>();
 
 const { eur, eurS, num, grad, primary, primarySoft } = useGros();
 
-const form = ref<Plan>({ ...props.plan });
-/** Započítať hotovosť nad šesťmesačnú rezervu do štartovacej sumy. */
+const form = ref<Plan>({
+    year: props.plan.year,
+    birth_year: props.plan.birth_year,
+    monthly: props.plan.monthly,
+    withdrawal: props.plan.withdrawal,
+    spending: props.plan.spending,
+    housing: props.plan.housing,
+    crypto_mode: props.plan.crypto_mode,
+});
+
+const cryptoOptions: { key: CryptoMode; label: string; note: string }[] = [
+    { key: 'exclude', label: 'Nerátať', note: 'Plán stojí len na ETF a vkladoch. Čokoľvek z krypta je bonus navyše.' },
+    { key: 'flat', label: 'Dnešná hodnota', note: 'Krypto si udrží dnešnú kúpnu silu — bez rastu aj bez prepadu.' },
+    { key: 'stocks', label: 'Ako akcie', note: 'Rovnaké 3 / 5 / 7 % ako zvyšok. Pre krypto optimistický predpoklad bez opory v dátach.' },
+];
+const cryptoValue = computed(() => projection.value?.crypto.value ?? 0);
+const cryptoAlternatives = computed(() => projection.value?.crypto_alternatives ?? {});
+
+/** Vyplní príjem neskôr odhadom čistej priemernej mzdy. */
+function useAverageWage() {
+    ruleForm.value.later_income = props.averageWage.net_estimate;
+}
+
+/** Ako sa určuje mesačný vklad — pevná suma, alebo podiel z príjmu. */
+const ruleForm = ref({
+    mode: props.rule.mode,
+    pct: props.rule.pct,
+    later_on: props.rule.later !== null,
+    later_from: props.rule.later?.from ?? new Date().getFullYear() + 3,
+    later_income: props.rule.later?.income ?? null,
+    later_fixed: props.rule.later?.fixed_is_own ? props.rule.later.fixed : null,
+    later_monthly: props.rule.later?.monthly ?? null,
+});
+
+/** Prázdne pole z inputu príde ako '' — pre server je to „nezadané". */
+const val = (v: unknown): string => (v === null || v === undefined || v === '' ? '' : String(v));
+
+/** Parametre pravidla vkladu — posielajú sa vždy všetky, aj prázdne. */
+function ruleParams(): Record<string, string> {
+    const r = ruleForm.value;
+    return {
+        contribution_mode: r.mode,
+        contribution_pct: val(r.pct),
+        contribution_later_from: r.later_on ? val(r.later_from) : '',
+        contribution_later_income: r.later_on ? val(r.later_income) : '',
+        contribution_later_fixed: r.later_on ? val(r.later_fixed) : '',
+        contribution_later_monthly: r.later_on ? val(r.later_monthly) : '',
+    };
+}
+/** Započítať hotovosť nad cieľ rezervy do štartovacej sumy. */
 const includeCash = ref(false);
-/** „Čo keby som vkladal…" — neukladá sa do plánu, len porovnáva. */
-const compare = ref<number | null>(null);
 const projection = ref<Projection | null>(null);
 const loading = ref(true);
 const saving = ref(false);
-/** true = dnešné eurá (po inflácii), false = nominálne sumy roku odchodu */
-const realMode = ref(true);
 
 let timer: ReturnType<typeof setTimeout> | undefined;
 
@@ -208,19 +194,15 @@ async function load() {
     loading.value = true;
     const q = new URLSearchParams({
         year: String(form.value.year),
-        duration: String(form.value.duration),
+        birth_year: val(form.value.birth_year),
         monthly: String(form.value.monthly || 0),
-        index_contributions: form.value.index_contributions ? '1' : '0',
-        inflation: String(form.value.inflation),
-        fees: String(form.value.fees),
-        haircut: String(form.value.haircut),
-        withdrawal: String(form.value.withdrawal),
-        engine: form.value.engine,
+        withdrawal: val(form.value.withdrawal),
         include_cash: includeCash.value ? '1' : '0',
+        crypto_mode: form.value.crypto_mode,
+        ...ruleParams(),
     });
-    if (form.value.target_income) q.set('target_income', String(form.value.target_income));
     if (form.value.spending) q.set('spending', String(form.value.spending));
-    if (compare.value) q.set('compare', String(compare.value));
+    if (form.value.housing !== null && (form.value.housing as unknown) !== '') q.set('housing', String(form.value.housing));
 
     try {
         const r = await fetch('/retirement/simulate?' + q.toString(), { headers: { Accept: 'application/json' }, credentials: 'same-origin' });
@@ -235,10 +217,10 @@ async function load() {
 onMounted(load);
 
 watch(
-    [form, includeCash, compare],
+    [form, ruleForm, includeCash],
     () => {
         clearTimeout(timer);
-        timer = setTimeout(load, 350);
+        timer = setTimeout(load, 300);
     },
     { deep: true },
 );
@@ -247,20 +229,43 @@ function save() {
     saving.value = true;
     router.post(
         '/retirement',
-        { ...form.value, target_income: form.value.target_income || null, spending: form.value.spending || null },
+        {
+            ...form.value,
+            monthly: form.value.monthly || 0,
+            birth_year: val(form.value.birth_year) || null,
+            withdrawal: val(form.value.withdrawal) || null,
+            spending: form.value.spending || null,
+            housing: val(form.value.housing) || null,
+            ...Object.fromEntries(Object.entries(ruleParams()).map(([k, v]) => [k, v === '' ? null : v])),
+        },
         { preserveScroll: true, onFinish: () => (saving.value = false) },
     );
 }
 
 const freedom = computed(() => projection.value?.freedom ?? null);
-const withdrawal = computed(() => projection.value?.withdrawal ?? null);
+const byKey = computed(() => Object.fromEntries((projection.value?.scenarios ?? []).map((s) => [s.key, s])) as Record<string, Scenario>);
+const mid = computed(() => byKey.value.mid ?? null);
+const low = computed(() => byKey.value.low ?? null);
+const high = computed(() => byKey.value.high ?? null);
 
-/** Farba podľa toho, či plán prežije dôchodok. */
-const survivalTone = computed(() => {
-    const s = withdrawal.value?.success_pct ?? 0;
-    if (s >= 90) return { bg: '#e6f7ec', fg: '#2ba35a' };
-    if (s >= 75) return { bg: '#fff6e5', fg: '#b8791a' };
-    return { bg: '#fdeaea', fg: '#c0453f' };
+const chartLabels = computed(() => ({
+    low: `${low.value?.label ?? 'Opatrný'} ${num(low.value?.real_return ?? 3, 0)} %`,
+    mid: `${mid.value?.label ?? 'Stredný'} ${num(mid.value?.real_return ?? 5, 0)} %`,
+    high: `${high.value?.label ?? 'Priaznivý'} ${num(high.value?.real_return ?? 7, 0)} %`,
+}));
+
+/** Rozpätie rokov slobody — od priaznivého po opatrný scenár. */
+const freedomRange = computed(() => {
+    const f = freedom.value;
+    if (!f || f.earliest === null) return null;
+    if (f.latest === null) return `${f.earliest} – po ${f.horizon_year}`;
+    return f.earliest === f.latest ? String(f.earliest) : `${f.earliest} – ${f.latest}`;
+});
+
+const freedomTone = computed(() => {
+    const f = freedom.value;
+    if (!f || f.year === null) return { bg: '#fdeaea', fg: '#c0453f' };
+    return f.within_plan ? { bg: '#e6f7ec', fg: '#2ba35a' } : { bg: '#fff6e5', fg: '#b8791a' };
 });
 
 /** Meraný vklad sa líši od toho v pláne — ponúkni prepnutie. */
@@ -285,91 +290,162 @@ function stopTracking(id: number) {
     router.patch(`/investments/${id}/contributing`, { contributing: false }, { preserveScroll: true });
 }
 
-// ── Čo keby som vkladal viac ────────────────────────────────────────────
-const scenarios = computed(() => projection.value?.scenarios ?? null);
+/** Pravidlo vkladu po poslednom prepočte (server) — pred ním to, čo prišlo so stránkou. */
+const rule = computed<Rule>(() => projection.value?.rule ?? props.rule);
+/** Vklad, s ktorým projekcia naozaj počíta. */
+const effectiveMonthly = computed(() => rule.value.monthly);
 
-/** Súčasné tempo + okrúhle kroky nad ním + prípadný vlastný dopyt. */
-const scenarioRows = computed(() => {
-    const s = scenarios.value;
-    if (!s) return [];
-    const rows = [{ ...s.base, current: true }, ...s.ladder.map((r) => ({ ...r, current: false }))];
-    if (s.custom) rows.push({ ...s.custom, current: false, custom: true } as never);
-    return rows.sort((a, b) => a.monthly - b.monthly);
-});
+/** Odporúčaná miera výberu a s akou sa naozaj počíta. */
+const recommended = computed<Recommended>(() => projection.value?.params.withdrawal_recommended ?? props.plan.withdrawal_recommended);
+const withdrawalUsed = computed(() => projection.value?.params.withdrawal ?? form.value.withdrawal ?? recommended.value.rate);
 
-const scenarioMax = computed(() => Math.max(1, ...scenarioRows.value.map((r) => r.real_p50)));
-
-/** O koľko rokov skôr než pri súčasnom tempe. */
-function yearsEarlier(row: Scenario): number | null {
-    const base = scenarios.value?.base.freedom_year;
-    if (!base || !row.freedom_year) return null;
-    return base - row.freedom_year;
-}
-
-/** Koľko rokov skôr než plánovaný odchod — a či to vôbec vyjde. */
-const freedomTone = computed(() => {
-    const f = freedom.value;
-    if (!f?.reached) return { bg: '#fdeaea', fg: '#c0453f' };
-    return f.within_plan ? { bg: '#e6f7ec', fg: '#2ba35a' } : { bg: '#fff6e5', fg: '#b8791a' };
-});
-
-/**
- * Meraný stav: koľko ti reálne mesačne ostáva na investovanie. Porovnáva sa
- * bežný tok — teda bez peňazí, ktoré už do portfólia odišli, a bez jednorazoviek.
- */
+/** Plánovaný vklad oproti tomu, čo ti po spotrebe naozaj ostáva. */
 const contributionGap = computed(() => {
     const m = props.profile.measured;
     if (!m.has_data) return null;
-    const available = m.recurring_savings;
-    return { available, planned: form.value.monthly, delta: available - form.value.monthly };
+    return { available: m.savings, planned: effectiveMonthly.value, delta: m.savings - effectiveMonthly.value };
 });
 
-const chartSeries = computed(() => {
-    const s = projection.value?.series ?? [];
-    return realMode.value
-        ? s.map((p) => ({
-              year: p.year,
-              p10: p.real_p10,
-              p25: p.real_p25,
-              p50: p.real_p50,
-              p75: p.real_p75,
-              p90: p.real_p90,
-              contributed: p.real_contributed,
-          }))
-        : s.map((p) => ({ year: p.year, p10: p.p10, p25: p.p25, p50: p.p50, p75: p.p75, p90: p.p90, contributed: p.contributed }));
+/** Rozpis automatických výdavkov v dôchodku — prepočíta sa hneď, ako zmeníš bývanie. */
+const spendingBasis = computed(() => {
+    const b = props.spending_basis;
+    const later = form.value.housing === null || (form.value.housing as unknown) === '' ? null : Number(form.value.housing);
+    const auto = later === null ? b.consumption : Math.max(0, b.consumption - b.housing_now) + later;
+    return { ...b, housing_later: later, auto, missing_housing: later === null && b.housing_now < 50 };
 });
+const autoSpending = computed(() => spendingBasis.value.auto);
 
-const finalBlock = computed(() => {
-    const f = projection.value?.final;
-    if (!f) return null;
-    return realMode.value ? f.real : f.nominal;
+/** Odkiaľ je mesačný vklad — zmeraný z nákupov, alebo vlastný. */
+const monthlySource = computed<'measured' | 'own'>(() =>
+    ruleForm.value.mode === 'fixed' && props.contributions.has_data && Math.abs(props.contributions.recommended - form.value.monthly) <= 5
+        ? 'measured'
+        : 'own',
+);
+
+type Source = 'measured' | 'own' | 'assumption';
+const sourceLabel: Record<Source, string> = { measured: 'namerané', own: 'tvoje nastavenie', assumption: 'predpoklad' };
+const sourceStyle: Record<Source, Record<string, string>> = {
+    measured: { background: '#e6f7ec', color: '#2ba35a' },
+    own: { background: '#eef6ff', color: '#2a6ebd' },
+    assumption: { background: '#f1efe8', color: '#8a8c9a' },
+};
+
+/** Každý vstup projekcie: hodnota a odkiaľ je. */
+const inputRows = computed(() => {
+    const b = spendingBasis.value;
+    const m = props.profile.measured;
+    const rows: { label: string; value: string; source: Source; note: string }[] = [
+        {
+            label: 'Štartovacia suma',
+            value: eur(projection.value?.start_value ?? props.profile.assets.portfolio),
+            source: 'measured',
+            note:
+                `Portfólio ${eur(props.profile.assets.portfolio)} podľa stránky Investície` +
+                (cryptoValue.value > 0 && form.value.crypto_mode === 'exclude' ? `, bez krypta ${eur(cryptoValue.value)}` : '') +
+                (includeCash.value ? ` + hotovosť nad cieľ rezervy ${eur(props.profile.investable_cash)}` : '') +
+                '. Dlhy sa nerátajú.',
+        },
+        ...(cryptoValue.value > 0
+            ? [
+                  {
+                      label: 'Krypto',
+                      value: cryptoOptions.find((o) => o.key === form.value.crypto_mode)?.label ?? '',
+                      source: 'own' as Source,
+                      note: `${eur(cryptoValue.value)} — ${cryptoOptions.find((o) => o.key === form.value.crypto_mode)?.note ?? ''}`,
+                  },
+              ]
+            : []),
+        {
+            label: 'Mesačný vklad',
+            value: eur(effectiveMonthly.value) + '/mes.',
+            source: monthlySource.value,
+            note:
+                rule.value.mode === 'percent'
+                    ? `${num(rule.value.pct, 0)} % z príjmu ${eur(rule.value.income)} po povinných platbách ${eur(rule.value.fixed)} (splátky z Úverov).`
+                    : monthlySource.value === 'measured'
+                      ? `Medián tvojich nákupov za posledných ${props.contributions.months} mesiacov.`
+                      : props.contributions.has_data
+                        ? `Zadal si sám; podľa nákupov reálne posielaš ${eur(props.contributions.recommended)}/mes.`
+                        : 'Zadal si sám — v portfóliu zatiaľ nie sú nákupy, z ktorých by sa dal zmerať.',
+        },
+        ...(rule.value.later
+            ? [
+                  {
+                      label: `Vklad od roku ${rule.value.later.from}`,
+                      value: rule.value.later.monthly === null ? 'nezadané' : eur(rule.value.later.monthly) + '/mes.',
+                      source: 'own' as Source,
+                      note:
+                          rule.value.mode === 'percent'
+                              ? rule.value.later.income === null
+                                  ? 'Doplň čistý príjem po škole.'
+                                  : `${num(rule.value.pct, 0)} % z príjmu ${eur(rule.value.later.income)} po povinných platbách ${eur(rule.value.later.fixed)}${rule.value.later.fixed_is_own ? '' : ' (splátky + bývanie neskôr)'}.` +
+                                    (rule.value.later.income === props.averageWage.net_estimate
+                                        ? ` Príjem je odhad čistej priemernej mzdy — hrubá ${eur(props.averageWage.gross)} za rok ${props.averageWage.year} (${props.averageWage.source}).`
+                                        : '')
+                              : 'Zadal si sám.',
+                  },
+              ]
+            : []),
+        {
+            label: 'Výdavky v dôchodku',
+            value: eur(form.value.spending || b.auto) + '/mes.',
+            source: form.value.spending ? 'own' : 'measured',
+            note: form.value.spending
+                ? 'Zadal si sám.'
+                : b.housing_later === null
+                  ? `Dnešná spotreba za ${b.months} mes. (bez vkladov do portfólia, s jednorazovkami aj dovolenkami).`
+                  : `Spotreba ${eur(b.consumption)} − dnešné bývanie ${eur(b.housing_now)} + bývanie neskôr ${eur(b.housing_later)}.`,
+        },
+        {
+            label: 'Dnešné bývanie',
+            value: eur(b.housing_now) + '/mes.',
+            source: 'measured',
+            note: 'Priemer kategórie Bývanie a jej podkategórií.',
+        },
+        {
+            label: 'Bývanie neskôr',
+            value: b.housing_later === null ? 'nezadané' : eur(b.housing_later) + '/mes.',
+            source: 'own',
+            note: 'Nahradí dnešné bývanie vo výdavkoch v dôchodku.',
+        },
+        { label: 'Rok odchodu', value: String(form.value.year), source: 'own', note: `O ${yearsLeft.value} rokov.` },
+        {
+            label: 'Miera výberu',
+            value: num(withdrawalUsed.value, 2) + ' %',
+            source: val(form.value.withdrawal) === '' ? 'assumption' : 'own',
+            note:
+                val(form.value.withdrawal) !== ''
+                    ? 'Zadal si sám.'
+                    : recommended.value.duration === null
+                      ? 'Bežné pravidlo pre 30-ročný dôchodok. Doplň rok narodenia, nech sa prispôsobí dĺžke tvojho dôchodku.'
+                      : `Odporúčaná pre dôchodok od ${recommended.value.age} do 90 rokov (${recommended.value.duration} r.).`,
+        },
+        {
+            label: 'Výnos',
+            value: '3 / 5 / 7 %',
+            source: 'assumption',
+            note: 'Ročne po inflácii aj poplatkoch — opatrný, stredný a priaznivý scenár.',
+        },
+        { label: 'Štátny dôchodok', value: 'neráta sa', source: 'own', note: 'Na desaťročia dopredu sa naň nespoliehame.' },
+        {
+            label: 'Dane z výnosov',
+            value: 'nerátajú sa',
+            source: 'assumption',
+            note: 'Zjednodušenie — prípadná daň pri predaji investícií sa neodráta.',
+        },
+    ];
+    if (m.has_data) {
+        rows.push({
+            label: 'Príjem',
+            value: eur(m.income) + '/mes.',
+            source: 'measured',
+            note: `Priemer za ${m.months} mes. bez prijatých pôžičiek. Do projekcie nevstupuje, slúži na porovnanie s vkladom.`,
+        });
+    }
+    return rows;
 });
 
 const yearsLeft = computed(() => projection.value?.years ?? Math.max(0, form.value.year - new Date().getFullYear()));
-
-/** Podiel konečnej sumy, ktorý spravil trh (nie vlastné vklady). */
-const growthShare = computed(() => {
-    const f = projection.value?.final;
-    if (!f || !f.nominal.p50) return 0;
-    return Math.max(0, Math.round(((f.nominal.p50 - f.contributed) / f.nominal.p50) * 100));
-});
-
-const successTone = computed(() => {
-    const p = projection.value?.target?.success_pct ?? 0;
-    if (p >= 80) return { bg: '#e6f7ec', fg: '#2ba35a' };
-    if (p >= 50) return { bg: '#fff6e5', fg: '#b8791a' };
-    return { bg: '#fdeaea', fg: '#c0453f' };
-});
-
-/** Koľko je dnešných 1 000 € v cieľovom roku — ilustrácia sily inflácie. */
-const inflationBite = computed(() => {
-    const y = yearsLeft.value;
-    const i = form.value.inflation / 100;
-    return 1000 / (1 + i) ** y;
-});
-
-const engine = computed(() => props.engines.find((e) => e.key === form.value.engine) ?? null);
-const engineNote = computed(() => engine.value?.note ?? '');
 
 const labelStyle = 'font-size: 12px; font-weight: 700; color: #8a8c9a; margin-bottom: 6px; display: block';
 const inputStyle =
@@ -378,7 +454,7 @@ const inputStyle =
 
 <template>
     <Head title="Dôchodok" />
-    <GrosLayout title="Dôchodok" :subtitle="`Kam sa dostaneš do roku ${form.year} — prepočítané na historických dátach`">
+    <GrosLayout title="Dôchodok" :subtitle="`Kam sa dostaneš do roku ${form.year} — v troch scenároch, v dnešných eurách`">
         <template #action>
             <button
                 type="button"
@@ -405,53 +481,57 @@ const inputStyle =
             <!-- ── Hlavný výsledok ─────────────────────────────────────── -->
             <div style="border-radius: 20px; padding: 26px; color: #fff" :style="{ background: grad, boxShadow: `0 16px 34px ${primarySoft}` }">
                 <div style="display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 8px">
-                    <div style="font-size: 13px; font-weight: 600; opacity: 0.9">
-                        Stredný scenár v roku {{ form.year }}<span v-if="realMode"> — v dnešných eurách</span>
-                    </div>
+                    <div style="font-size: 13px; font-weight: 600; opacity: 0.9">V roku {{ form.year }}, v dnešných eurách</div>
                     <div style="font-size: 12px; font-weight: 600; opacity: 0.8">o {{ yearsLeft }} rokov</div>
                 </div>
 
                 <div v-if="loading && !projection" class="font-display" style="font-weight: 800; font-size: 40px; margin-top: 8px; opacity: 0.5">
                     …
                 </div>
-                <template v-else-if="projection?.ok && finalBlock">
+                <template v-else-if="projection?.ok && mid && low && high">
                     <div class="font-display" style="font-weight: 800; font-size: 40px; letter-spacing: -1.6px; margin-top: 6px">
-                        {{ eur(finalBlock.p50) }}
+                        {{ eur(low.final) }} – {{ eur(high.final) }}
                     </div>
                     <div style="font-size: 13px; font-weight: 600; opacity: 0.9; margin-top: 4px">
-                        pesimisticky {{ eur(finalBlock.p10) }} · optimisticky {{ eur(finalBlock.p90) }}
+                        pri {{ num(mid.real_return, 0) }} % ročne {{ eur(mid.final) }} · rozpätie je {{ num(low.real_return, 0) }} až
+                        {{ num(high.real_return, 0) }} % po inflácii
                     </div>
 
                     <div style="display: flex; flex-wrap: wrap; gap: 24px; margin-top: 20px">
                         <div>
-                            <div style="font-size: 11.5px; opacity: 0.85; font-weight: 600">Mesačná renta (dnešné €)</div>
+                            <div style="font-size: 11.5px; opacity: 0.85; font-weight: 600">Mesačne pri výbere {{ num(withdrawalUsed, 2) }} %</div>
                             <div class="font-display" style="font-weight: 800; font-size: 22px; margin-top: 2px">
-                                {{ eur(projection.final.income.p50) }}
-                            </div>
-                            <div style="font-size: 11px; opacity: 0.8; font-weight: 600; margin-top: 2px">
-                                {{ eur(projection.final.income.p10) }} – {{ eur(projection.final.income.p90) }}
+                                {{ eur(low.income) }} – {{ eur(high.income) }}
                             </div>
                         </div>
                         <div>
                             <div style="font-size: 11.5px; opacity: 0.85; font-weight: 600">Z toho tvoje vklady</div>
-                            <div style="font-weight: 700; font-size: 16px; margin-top: 4px">{{ eur(projection.final.contributed) }}</div>
-                            <div style="font-size: 11px; opacity: 0.8; font-weight: 600; margin-top: 2px">
-                                trh spravil {{ growthShare }} % konečnej sumy
-                            </div>
-                        </div>
-                        <div v-if="profile.measured.has_data && profile.measured.income > 0">
-                            <div style="font-size: 11.5px; opacity: 0.85; font-weight: 600">Oproti dnešnému príjmu</div>
-                            <div style="font-weight: 700; font-size: 16px; margin-top: 4px">
-                                {{ num((projection.final.income.p50 / profile.measured.income) * 100) }} %
-                            </div>
-                            <div style="font-size: 11px; opacity: 0.8; font-weight: 600; margin-top: 2px">
-                                dnes zarábaš {{ eur(profile.measured.income) }}/mes.
-                            </div>
+                            <div style="font-weight: 700; font-size: 16px; margin-top: 4px">{{ eur(projection.contributed) }}</div>
                         </div>
                     </div>
                 </template>
-                <div v-else style="font-size: 15px; font-weight: 600; margin-top: 10px; opacity: 0.9">
-                    {{ projection?.reason ?? 'Projekciu sa nepodarilo spočítať.' }}
+                <div v-else style="font-size: 15px; font-weight: 600; margin-top: 10px; opacity: 0.9">Projekciu sa nepodarilo spočítať.</div>
+            </div>
+
+            <!-- dnešná spotreba bez bývania o výdavkoch v dôchodku nič nehovorí -->
+            <div
+                v-if="spendingBasis.missing_housing && !form.spending"
+                style="
+                    display: flex;
+                    align-items: flex-start;
+                    gap: 10px;
+                    background: #fff6e5;
+                    border-radius: 16px;
+                    padding: 15px 18px;
+                    margin-top: 14px;
+                "
+            >
+                <span style="font-size: 16px">⚠️</span>
+                <div style="font-size: 12.5px; font-weight: 600; color: #8a6516; line-height: 1.6">
+                    Dnes za bývanie neplatíš ({{ eur(spendingBasis.housing_now) }}/mes.), takže výdavky v dôchodku vychádzajú len
+                    {{ eur(spendingBasis.auto) }}/mes. To je takmer isto málo. Doplň v pláne nižšie, koľko by si platil za bývanie — priemerná
+                    ponuková cena nájmu bytu je podľa Deloitte Rent Index (Q1 2026) 736 € na Slovensku a 948 € v Bratislave. Kým to nevyplníš, sú
+                    čísla nižšie príliš optimistické.
                 </div>
             </div>
 
@@ -466,25 +546,18 @@ const inputStyle =
                         <div style="font-size: 12px; font-weight: 700; color: #6a6c7a">Rok slobody</div>
                         <div
                             class="font-display"
-                            style="font-weight: 800; font-size: 40px; letter-spacing: -1.4px; margin-top: 4px"
+                            style="font-weight: 800; font-size: 36px; letter-spacing: -1.2px; margin-top: 4px"
                             :style="{ color: freedomTone.fg }"
                         >
-                            {{ freedom.year ?? 'po ' + freedom.horizon_year }}
+                            {{ freedomRange ?? 'po ' + freedom.horizon_year }}
                         </div>
-
-                        <div v-if="freedom.reached" style="font-size: 12.5px; font-weight: 700; color: #6a6c7a; margin-top: 2px">
-                            o {{ freedom.years_from_now }} rokov<template v-if="(freedom.years_earlier ?? 0) > 0">
-                                · {{ freedom.years_earlier }} rokov pred plánom</template
-                            ><template v-else-if="(freedom.years_earlier ?? 0) < 0">
-                                · {{ Math.abs(freedom.years_earlier ?? 0) }} rokov po plánovanom odchode</template
-                            ><template v-else> · presne v plánovanom roku</template>
-                        </div>
-                        <div v-else style="font-size: 12.5px; font-weight: 700; color: #6a6c7a; margin-top: 2px">
-                            Pri tomto tempe to nevyjde ani do {{ freedom.horizon_year }}.
-                        </div>
-
-                        <div v-if="freedom.reached" style="font-size: 11.5px; color: #8a8c9a; font-weight: 600; margin-top: 8px">
-                            v zlom scenári {{ freedom.year_safe ?? 'nedosiahne' }} · v dobrom {{ freedom.year_lucky ?? '—' }}
+                        <div style="font-size: 12.5px; font-weight: 700; color: #6a6c7a; margin-top: 2px">
+                            <template v-if="freedom.year !== null">
+                                pri {{ num(mid?.real_return ?? 5, 0) }} % ročne okolo roku {{ freedom.year
+                                }}<template v-if="freedom.within_plan"> — stihne sa do plánovaného odchodu</template
+                                ><template v-else> — po plánovanom odchode</template>
+                            </template>
+                            <template v-else>Pri tomto tempe to v strednom scenári nevyjde ani do {{ freedom.horizon_year }}.</template>
                         </div>
 
                         <!-- nevyšlo do plánovaného roku → koľko treba pridať, aby vyšlo -->
@@ -500,7 +573,10 @@ const inputStyle =
                                 line-height: 1.6;
                             "
                         >
-                            Aby to vyšlo už v {{ form.year }}, stačí vkladať
+                            Aby to v strednom scenári vyšlo už v {{ form.year }}, treba<template v-if="freedom.required_from">
+                                od roku {{ freedom.required_from }}</template
+                            >
+                            vkladať
                             <b class="font-display" style="font-size: 15px; color: #20212e">{{ eur(freedom.required_monthly) }}</b
                             >/mes.<template v-if="(freedom.required_extra ?? 0) > 0">
                                 — o <b>{{ eur(freedom.required_extra ?? 0) }}</b> viac než teraz</template
@@ -511,8 +587,8 @@ const inputStyle =
                     <div style="flex: 1; min-width: 210px; background: #f7f6f2; border-radius: 14px; padding: 18px 20px">
                         <div style="font-size: 12px; font-weight: 700; color: #6a6c7a">Potrebuješ nasporiť</div>
                         <div class="font-display" style="font-weight: 800; font-size: 26px; margin-top: 4px">{{ eur(freedom.fire_number) }}</div>
-                        <div style="font-size: 11.5px; color: #8a8c9a; font-weight: 600; margin-top: 3px">
-                            {{ eur(freedom.annual_spending) }} ročne pri výbere {{ num(form.withdrawal, 1) }} %
+                        <div style="font-size: 11.5px; color: #8a8c9a; font-weight: 600; margin-top: 3px; line-height: 1.5">
+                            {{ eur(freedom.monthly_spending * 12) }} ročne pri výbere {{ num(withdrawalUsed, 2) }} %
                         </div>
                         <div style="height: 8px; border-radius: 4px; background: #eceae2; overflow: hidden; margin-top: 12px">
                             <div
@@ -524,24 +600,16 @@ const inputStyle =
                             máš {{ num(freedom.progress_pct, 1) }} % z toho
                         </div>
                     </div>
+                </div>
+            </Card>
 
-                    <div style="flex: 1; min-width: 210px; background: #f7f6f2; border-radius: 14px; padding: 18px 20px">
-                        <div style="font-size: 12px; font-weight: 700; color: #6a6c7a">Coast FIRE</div>
-                        <div class="font-display" style="font-weight: 800; font-size: 26px; margin-top: 4px">{{ freedom.coast_year ?? '—' }}</div>
-                        <div
-                            v-if="freedom.coast_year"
-                            style="font-size: 11.5px; color: #8a8c9a; font-weight: 600; margin-top: 6px; line-height: 1.55"
-                        >
-                            Od tohto roku už nemusíš vložiť ani euro — to, čo budeš mať, dorastie do cieľa samo do {{ form.year }}. Odvtedy môžeš
-                            pokojne zarábať menej.
-                        </div>
-                        <div v-else style="font-size: 11.5px; color: #8a8c9a; font-weight: 600; margin-top: 6px; line-height: 1.55">
-                            Do {{ form.year }} tento bod nenastane, lebo dovtedy nedosiahneš ani samotnú slobodu.
-                            <template v-if="freedom.required_monthly !== null">
-                                Objaví sa, keď vklad zdvihneš aspoň na {{ eur(freedom.required_monthly) }}/mes.
-                            </template>
-                        </div>
-                    </div>
+            <!-- ── Graf ────────────────────────────────────────────────── -->
+            <Card v-if="projection?.ok" title="Vývoj do dôchodku" style="margin-top: 14px">
+                <template #right>
+                    <span style="font-size: 12px; font-weight: 600; color: #9a9cab">dnešné eurá</span>
+                </template>
+                <div style="margin-top: 14px">
+                    <ScenarioChart :series="projection.series" :labels="chartLabels" />
                 </div>
             </Card>
 
@@ -553,15 +621,98 @@ const inputStyle =
                         <input v-model.number="form.year" type="number" min="2027" max="2120" :style="inputStyle" />
                     </div>
                     <div>
-                        <label :style="labelStyle">Dĺžka dôchodku (rokov)</label>
-                        <input v-model.number="form.duration" type="number" min="5" max="60" :style="inputStyle" />
+                        <label :style="labelStyle">Rok narodenia</label>
+                        <input v-model.number="form.birth_year" type="number" min="1920" max="2025" placeholder="napr. 2004" :style="inputStyle" />
+                        <div style="font-size: 11px; color: #9a9cab; font-weight: 600; margin-top: 5px">na dĺžku dôchodku a mieru výberu</div>
+                    </div>
+                    <div>
+                        <label :style="labelStyle">Výdavky v dôchodku (€/mes., dnešné €)</label>
+                        <input
+                            v-model.number="form.spending"
+                            type="number"
+                            min="0"
+                            step="50"
+                            :placeholder="'automaticky ' + eur(autoSpending)"
+                            :style="inputStyle"
+                        />
                         <div style="font-size: 11px; color: #9a9cab; font-weight: 600; margin-top: 5px">
-                            Odchod {{ form.year }} + {{ form.duration }} = do {{ form.year + form.duration }}
+                            <template v-if="form.spending">tvoja suma</template>
+                            <template v-else>spotreba + bývanie, rozpis nižšie</template>
                         </div>
                     </div>
                     <div>
-                        <label :style="labelStyle">Mesačný vklad (€)</label>
-                        <input v-model.number="form.monthly" type="number" min="0" step="10" :style="inputStyle" />
+                        <label :style="labelStyle">Bývanie neskôr (€/mes., dnešné €)</label>
+                        <input v-model.number="form.housing" type="number" min="0" step="50" placeholder="napr. 700" :style="inputStyle" />
+                        <div style="font-size: 11px; color: #9a9cab; font-weight: 600; margin-top: 5px">
+                            dnes platíš {{ eur(spendingBasis.housing_now) }}/mes.
+                        </div>
+                    </div>
+                    <div>
+                        <label :style="labelStyle">Miera výberu (% ročne)</label>
+                        <input
+                            v-model.number="form.withdrawal"
+                            type="number"
+                            min="0.5"
+                            max="10"
+                            step="0.05"
+                            :placeholder="'odporúčané ' + num(recommended.rate, 2) + ' %'"
+                            :style="inputStyle"
+                        />
+                        <div style="font-size: 11px; color: #9a9cab; font-weight: 600; margin-top: 5px">
+                            <template v-if="recommended.duration !== null"
+                                >dôchodok {{ recommended.duration }} r. → {{ num(recommended.rate, 2) }} %</template
+                            >
+                            <template v-else>4 % platí pre 30-ročný dôchodok</template>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ── Mesačný vklad ── -->
+                <div style="background: #f7f6f2; border-radius: 14px; padding: 15px 17px; margin-top: 14px">
+                    <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap">
+                        <div style="font-size: 12.5px; font-weight: 800; color: #20212e">Mesačný vklad</div>
+                        <div style="display: flex; background: #eceae2; border-radius: 10px; padding: 3px; margin-left: auto">
+                            <button
+                                v-for="opt in [
+                                    { k: 'percent', l: '% z príjmu' },
+                                    { k: 'fixed', l: 'Pevná suma' },
+                                ] as const"
+                                :key="opt.k"
+                                type="button"
+                                style="font-size: 12px; font-weight: 700; padding: 7px 12px; border-radius: 8px; white-space: nowrap"
+                                :style="ruleForm.mode === opt.k ? { background: '#fff', color: '#20212e' } : { color: '#9a9cab' }"
+                                @click="ruleForm.mode = opt.k"
+                            >
+                                {{ opt.l }}
+                            </button>
+                        </div>
+                    </div>
+
+                    <template v-if="ruleForm.mode === 'percent'">
+                        <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 12px">
+                            <input
+                                v-model.number="ruleForm.pct"
+                                type="number"
+                                min="0"
+                                max="100"
+                                step="1"
+                                :style="inputStyle + '; width: 90px; background: #fff'"
+                            />
+                            <span style="font-size: 13px; font-weight: 700; color: #6a6c7a">% z príjmu po povinných platbách</span>
+                        </div>
+                        <div style="font-size: 12px; color: #6a6c7a; font-weight: 600; line-height: 1.6; margin-top: 10px">
+                            Príjem {{ eur(rule.income) }} − povinné platby {{ eur(rule.fixed) }} (splátky z Úverov) = {{ eur(rule.base) }} →
+                            <b style="color: #20212e">vklad {{ eur(rule.monthly) }}/mes.</b>
+                        </div>
+                    </template>
+                    <template v-else>
+                        <input
+                            v-model.number="form.monthly"
+                            type="number"
+                            min="0"
+                            step="10"
+                            :style="inputStyle + '; background: #fff; margin-top: 12px'"
+                        />
                         <div v-if="contributions.has_data" style="font-size: 11px; color: #9a9cab; font-weight: 600; margin-top: 5px">
                             Reálne posielaš {{ eur(contributions.recommended) }}/mes.
                             <button
@@ -573,48 +724,88 @@ const inputStyle =
                                 použiť
                             </button>
                         </div>
-                    </div>
-                    <div>
-                        <label :style="labelStyle">Výdavky v dôchodku (€/mes., dnešné €)</label>
-                        <input v-model.number="form.spending" type="number" min="0" step="50" placeholder="merané z transakcií" :style="inputStyle" />
-                        <div v-if="profile.measured.has_data" style="font-size: 11px; color: #9a9cab; font-weight: 600; margin-top: 5px">
-                            Teraz míňaš {{ eur(profile.measured.expense) }}/mes. (priemer za {{ profile.measured.months }} mes.)
+                    </template>
+
+                    <label style="display: flex; align-items: center; gap: 9px; margin-top: 14px; cursor: pointer">
+                        <input v-model="ruleForm.later_on" type="checkbox" style="width: 17px; height: 17px; accent-color: #6c5ce7" />
+                        <span style="font-size: 13px; font-weight: 600">Od istého roku sa zmení príjem (napr. po škole)</span>
+                    </label>
+                    <div
+                        v-if="ruleForm.later_on"
+                        style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-top: 12px"
+                    >
+                        <div>
+                            <label :style="labelStyle">Od roku</label>
+                            <input
+                                v-model.number="ruleForm.later_from"
+                                type="number"
+                                min="2026"
+                                max="2120"
+                                :style="inputStyle + '; background: #fff'"
+                            />
+                        </div>
+                        <template v-if="ruleForm.mode === 'percent'">
+                            <div>
+                                <label :style="labelStyle">Čistý príjem (€/mes.)</label>
+                                <input
+                                    v-model.number="ruleForm.later_income"
+                                    type="number"
+                                    min="0"
+                                    step="50"
+                                    placeholder="napr. 1300"
+                                    :style="inputStyle + '; background: #fff'"
+                                />
+                                <button
+                                    type="button"
+                                    style="
+                                        font-size: 11px;
+                                        font-weight: 800;
+                                        color: #2a6ebd;
+                                        text-decoration: underline;
+                                        margin-top: 5px;
+                                        text-align: left;
+                                    "
+                                    @click="useAverageWage"
+                                >
+                                    priemerná mzda SR ≈ {{ eur(averageWage.net_estimate) }} čistého
+                                </button>
+                            </div>
+                            <div>
+                                <label :style="labelStyle">Povinné platby (€/mes.)</label>
+                                <input
+                                    v-model.number="ruleForm.later_fixed"
+                                    type="number"
+                                    min="0"
+                                    step="50"
+                                    :placeholder="'automaticky ' + eur(rule.later?.fixed ?? rule.fixed)"
+                                    :style="inputStyle + '; background: #fff'"
+                                />
+                            </div>
+                        </template>
+                        <div v-else>
+                            <label :style="labelStyle">Vklad od toho roku (€/mes.)</label>
+                            <input
+                                v-model.number="ruleForm.later_monthly"
+                                type="number"
+                                min="0"
+                                step="10"
+                                :style="inputStyle + '; background: #fff'"
+                            />
                         </div>
                     </div>
-                    <div>
-                        <label :style="labelStyle">Historický vzor výnosov</label>
-                        <select v-model="form.engine" :style="inputStyle">
-                            <option v-for="e in engines" :key="e.key" :value="e.key">{{ e.label }} — {{ e.years }} r.</option>
-                        </select>
-                    </div>
-                </div>
-
-                <div style="font-size: 12px; color: #8a8c9a; font-weight: 600; line-height: 1.55; margin-top: 10px">{{ engineNote }}</div>
-
-                <!-- krátka história je pri 40-ročnej projekcii slabina, nie detail -->
-                <div
-                    v-if="engine?.short_history"
-                    style="
-                        display: flex;
-                        align-items: flex-start;
-                        gap: 9px;
-                        background: #fff6e5;
-                        border-radius: 13px;
-                        padding: 12px 15px;
-                        margin-top: 10px;
-                    "
-                >
-                    <span style="font-size: 15px">⚠️</span>
-                    <div style="font-size: 12.5px; font-weight: 600; color: #8a6516; line-height: 1.6">
-                        Tento rad má len <b>{{ engine.years }} rokov</b> histórie, a projekcia beží na {{ yearsLeft }}. Navyše začína v roku
-                        {{ engine.since }}, teda blízko dna krízy — obsahuje takmer výhradne rast, takže výnos vychádza nezvyčajne vysoko.
-                        <button
-                            type="button"
-                            style="font-weight: 800; text-decoration: underline; color: #8a6516"
-                            @click="form.engine = longestEngine.key"
+                    <div
+                        v-if="ruleForm.later_on && rule.later"
+                        style="font-size: 12px; color: #6a6c7a; font-weight: 600; line-height: 1.6; margin-top: 10px"
+                    >
+                        <template v-if="rule.mode === 'percent' && rule.later.base !== null">
+                            Od {{ rule.later.from }}: príjem {{ eur(rule.later.income ?? 0) }} − povinné platby {{ eur(rule.later.fixed)
+                            }}<template v-if="!rule.later.fixed_is_own"> (splátky + bývanie neskôr)</template> = {{ eur(rule.later.base) }} →
+                            <b style="color: #20212e">vklad {{ eur(rule.later.monthly ?? 0) }}/mes.</b>
+                        </template>
+                        <template v-else-if="rule.later.monthly === null"
+                            >Doplň {{ rule.mode === 'percent' ? 'príjem' : 'vklad' }} od roku {{ rule.later.from }}.</template
                         >
-                            Prepnúť na {{ longestEngine.label }} ({{ longestEngine.years }} r.) →
-                        </button>
+                        <template v-else>Od {{ rule.later.from }} vklad {{ eur(rule.later.monthly) }}/mes.</template>
                     </div>
                 </div>
 
@@ -627,40 +818,35 @@ const inputStyle =
                             <div style="font-weight: 800; font-size: 15px; margin-top: 2px">{{ eur(profile.measured.income) }}</div>
                         </div>
                         <div>
-                            <div style="font-size: 11px; font-weight: 700; color: #8a8c9a">Bežné výdavky</div>
-                            <div style="font-weight: 800; font-size: 15px; margin-top: 2px">{{ eur(profile.measured.recurring_expense) }}</div>
+                            <div style="font-size: 11px; font-weight: 700; color: #8a8c9a">Spotreba</div>
+                            <div style="font-weight: 800; font-size: 15px; margin-top: 2px">{{ eur(profile.measured.consumption) }}</div>
                         </div>
                         <div>
-                            <div style="font-size: 11px; font-weight: 700; color: #8a8c9a">Reálne ti ostáva</div>
+                            <div style="font-size: 11px; font-weight: 700; color: #8a8c9a">Ostáva ti</div>
                             <div
                                 style="font-weight: 800; font-size: 15px; margin-top: 2px"
-                                :style="{ color: profile.measured.recurring_savings >= 0 ? '#2ba35a' : '#e8544e' }"
+                                :style="{ color: profile.measured.savings >= 0 ? '#2ba35a' : '#e8544e' }"
                             >
-                                {{ eurS(profile.measured.recurring_savings) }}
+                                {{ eurS(profile.measured.savings) }}
                             </div>
                         </div>
-                        <div v-if="profile.measured.recurring_savings_rate !== null">
+                        <div v-if="profile.measured.savings_rate !== null">
                             <div style="font-size: 11px; font-weight: 700; color: #8a8c9a">Miera úspor</div>
                             <div
                                 style="font-weight: 800; font-size: 15px; margin-top: 2px"
-                                :style="{ color: (profile.measured.recurring_savings_rate ?? 0) >= 0 ? '#2ba35a' : '#e8544e' }"
+                                :style="{ color: (profile.measured.savings_rate ?? 0) >= 0 ? '#2ba35a' : '#e8544e' }"
                             >
-                                {{ num(profile.measured.recurring_savings_rate ?? 0, 1) }} %
+                                {{ num(profile.measured.savings_rate ?? 0, 1) }} %
                             </div>
                         </div>
                     </div>
 
                     <div
-                        v-if="profile.measured.savings_flow > 0 || profile.measured.one_off > 0"
+                        v-if="profile.measured.savings_flow > 0"
                         style="font-size: 11.5px; color: #8a8c9a; font-weight: 600; line-height: 1.6; margin-top: 10px"
                     >
-                        Z hrubých výdavkov {{ eur(profile.measured.expense) }} sme odrátali
-                        <template v-if="profile.measured.savings_flow > 0"
-                            ><b>{{ eur(profile.measured.savings_flow) }}</b> poslaných do portfólia</template
-                        ><template v-if="profile.measured.savings_flow > 0 && profile.measured.one_off > 0"> a </template
-                        ><template v-if="profile.measured.one_off > 0"
-                            ><b>{{ eur(profile.measured.one_off) }}</b> jednorazoviek</template
-                        >. Ani jedno nie je bežná spotreba — prvé si odložil, druhé sa nezopakuje.
+                        Z hrubých výdavkov {{ eur(profile.measured.expense) }} sme odrátali <b>{{ eur(profile.measured.savings_flow) }}</b> poslaných
+                        do portfólia — tie nie sú spotreba, len presun. Jednorazové výdavky aj dovolenky v spotrebe ostávajú, lebo nejaké prídu vždy.
                     </div>
 
                     <div
@@ -677,7 +863,7 @@ const inputStyle =
                     >
                         <template v-if="contributionGap.delta > 0">
                             Mesačne ti ostáva {{ eurS(contributionGap.available) }}, ale do portfólia posielaš {{ eur(form.monthly) }}. Je tam
-                            priestor o {{ eur(contributionGap.delta) }} navyše — pozri nižšie, čo by to spravilo.
+                            priestor o {{ eur(contributionGap.delta) }} navyše.
                         </template>
                         <template v-else>
                             Plánuješ vkladať {{ eur(form.monthly) }}/mes., ale reálne ti mesačne ostáva {{ eurS(contributionGap.available) }}.
@@ -686,15 +872,10 @@ const inputStyle =
                     </div>
                 </div>
 
-                <label style="display: flex; align-items: center; gap: 9px; margin-top: 14px; cursor: pointer">
-                    <input v-model="form.index_contributions" type="checkbox" style="width: 17px; height: 17px; accent-color: #6c5ce7" />
-                    <span style="font-size: 13.5px; font-weight: 600">Vklad rastie s infláciou (mzda rastie tiež)</span>
-                </label>
-
-                <label v-if="profile.investable_cash > 0" style="display: flex; align-items: center; gap: 9px; margin-top: 10px; cursor: pointer">
+                <label v-if="profile.investable_cash > 0" style="display: flex; align-items: center; gap: 9px; margin-top: 14px; cursor: pointer">
                     <input v-model="includeCash" type="checkbox" style="width: 17px; height: 17px; accent-color: #6c5ce7" />
                     <span style="font-size: 13.5px; font-weight: 600">
-                        Započítať aj {{ eur(profile.investable_cash) }} hotovosti nad šesťmesačnú rezervu
+                        Započítať aj {{ eur(profile.investable_cash) }} hotovosti nad cieľ rezervy
                     </span>
                 </label>
 
@@ -702,42 +883,6 @@ const inputStyle =
                     Projekcia štartuje z investičného portfólia {{ eur(profile.assets.portfolio) }}. Hotovosť {{ eur(profile.assets.cash)
                     }}<template v-if="profile.assets.debt > 0"> a dlhy {{ eur(profile.assets.debt) }}</template> do nej nevstupujú — hotovosť
                     nezhodnocuje trh a dlhy sa splácajú z bežného rozpočtu.
-                </div>
-
-                <div style="margin-top: 14px">
-                    <label :style="labelStyle">Cieľová renta (€/mes., dnešné €) — voliteľné</label>
-                    <input v-model.number="form.target_income" type="number" min="0" step="50" placeholder="napr. 1500" :style="inputStyle" />
-                </div>
-
-                <div style="height: 1px; background: #f1efe8; margin: 18px 0"></div>
-
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px">
-                    <div>
-                        <label :style="labelStyle">Inflácia (% ročne)</label>
-                        <input v-model.number="form.inflation" type="number" min="0" max="20" step="0.1" :style="inputStyle" />
-                        <div v-if="inflationHistory" style="font-size: 11px; color: #9a9cab; font-weight: 600; margin-top: 5px">
-                            SK priemer 20 r.: {{ num(inflationHistory.avg20, 1) }} % · od 1997: {{ num(inflationHistory.avg, 1) }} %
-                        </div>
-                    </div>
-                    <div>
-                        <label :style="labelStyle">Poplatky (% ročne)</label>
-                        <input v-model.number="form.fees" type="number" min="0" max="5" step="0.05" :style="inputStyle" />
-                        <div style="font-size: 11px; color: #9a9cab; font-weight: 600; margin-top: 5px">TER ETF + spread, typicky 0,2–0,5 %</div>
-                    </div>
-                    <div>
-                        <label :style="labelStyle">Konzervatívna zrážka (p.b.)</label>
-                        <input v-model.number="form.haircut" type="number" min="0" max="8" step="0.25" :style="inputStyle" />
-                        <div style="font-size: 11px; color: #9a9cab; font-weight: 600; margin-top: 5px">
-                            O koľko horšia bude budúcnosť než minulosť
-                        </div>
-                    </div>
-                    <div>
-                        <label :style="labelStyle">Miera výberu (% ročne)</label>
-                        <input v-model.number="form.withdrawal" type="number" min="0.5" max="10" step="0.1" :style="inputStyle" />
-                        <div style="font-size: 11px; color: #9a9cab; font-weight: 600; margin-top: 5px">
-                            Koľko si ročne vyberieš. 4 % = klasické pravidlo
-                        </div>
-                    </div>
                 </div>
             </Card>
 
@@ -882,394 +1027,131 @@ const inputStyle =
                 </div>
             </Card>
 
-            <!-- ── Graf ────────────────────────────────────────────────── -->
-            <Card title="Vývoj do dôchodku" style="margin-top: 14px">
+            <!-- ── Krypto v pláne ──────────────────────────────────────── -->
+            <Card v-if="cryptoValue > 0" title="Krypto v pláne" style="margin-top: 14px">
                 <template #right>
-                    <div style="display: flex; background: #f7f6f2; border-radius: 11px; padding: 3px">
-                        <button
-                            v-for="opt in [
-                                { k: true, l: 'Dnešné €' },
-                                { k: false, l: 'Nominálne' },
-                            ]"
-                            :key="String(opt.k)"
-                            type="button"
-                            style="font-size: 12.5px; font-weight: 700; padding: 7px 13px; border-radius: 9px"
-                            :style="
-                                realMode === opt.k
-                                    ? { background: '#fff', color: '#20212e', boxShadow: '0 2px 6px rgba(60,55,40,0.08)' }
-                                    : { color: '#9a9cab' }
-                            "
-                            @click="realMode = opt.k"
-                        >
-                            {{ opt.l }}
-                        </button>
-                    </div>
+                    <span style="font-size: 12px; font-weight: 600; color: #9a9cab"
+                        >{{ eur(cryptoValue) }} · {{ num(allocation.crypto_pct, 0) }} % portfólia</span
+                    >
                 </template>
-
-                <div v-if="loading && !projection" style="padding: 60px; text-align: center; color: #b0b2bd; font-weight: 600; font-size: 14px">
-                    Simulujem tisíce scenárov na historických dátach…
+                <div style="font-size: 12.5px; color: #6a6c7a; font-weight: 600; line-height: 1.65; margin-top: 10px">
+                    Scenáre 3 / 5 / 7 % vychádzajú z dlhodobých výnosov rozložených akcií. Pre krypto taký údaj neexistuje — za pár rokov môže stúpnuť
+                    niekoľkonásobne aj stratiť väčšinu hodnoty. Preto si vyber, ako s ním plán počíta:
                 </div>
-                <div
-                    v-else-if="projection?.ok"
-                    style="margin-top: 14px; opacity: 1"
-                    :style="{ opacity: loading ? 0.55 : 1, transition: 'opacity .2s' }"
-                >
-                    <FanChart :series="chartSeries" />
-                    <div style="font-size: 12px; color: #8a8c9a; font-weight: 600; line-height: 1.6; margin-top: 12px">
-                        <template v-if="realMode">
-                            Sumy sú prepočítané na dnešnú kúpnu silu pri inflácii {{ num(form.inflation, 1) }} % ročne — čísla hovoria, čo si za ne
-                            kúpiš dnes.
-                        </template>
-                        <template v-else>
-                            Sumy sú nominálne, teda čísla, ktoré uvidíš na účte v roku {{ form.year }}. Dnešných 1 000 € bude vtedy mať kúpnu silu
-                            {{ eur(inflationBite) }}.
-                        </template>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; margin-top: 14px">
+                    <button
+                        v-for="o in cryptoOptions"
+                        :key="o.key"
+                        type="button"
+                        style="text-align: left; border-radius: 14px; padding: 14px 16px; border: 1.5px solid transparent"
+                        :style="form.crypto_mode === o.key ? { background: '#f1effc', borderColor: primary } : { background: '#f7f6f2' }"
+                        @click="form.crypto_mode = o.key"
+                    >
+                        <div style="font-size: 13px; font-weight: 800">{{ o.label }}</div>
+                        <div style="font-size: 11.5px; color: #8a8c9a; font-weight: 600; line-height: 1.5; margin-top: 3px">{{ o.note }}</div>
+                        <div v-if="cryptoAlternatives[o.key]" style="font-size: 12px; font-weight: 700; color: #20212e; margin-top: 8px">
+                            sloboda {{ cryptoAlternatives[o.key]?.freedom_year ?? '—' }} · v {{ form.year }}
+                            {{ eur(cryptoAlternatives[o.key]?.final ?? 0) }}
+                        </div>
+                    </button>
+                </div>
+                <div style="font-size: 11.5px; color: #9a9cab; font-weight: 600; line-height: 1.6; margin-top: 10px">
+                    Čísla pri voľbách sú stredný scenár. Rozdiel medzi nimi ukazuje, koľko z plánu stojí na krypte.
+                </div>
+            </Card>
+
+            <!-- jednotlivé akcie — scenáre počítajú s rozloženými ETF -->
+            <div
+                v-if="allocation.stock_pct >= 20"
+                style="
+                    display: flex;
+                    align-items: flex-start;
+                    gap: 10px;
+                    background: #fff6e5;
+                    border-radius: 16px;
+                    padding: 15px 18px;
+                    margin-top: 14px;
+                "
+            >
+                <span style="font-size: 16px">⚠️</span>
+                <div style="font-size: 12.5px; font-weight: 600; color: #8a6516; line-height: 1.6">
+                    Jednotlivé akcie tvoria {{ num(allocation.stock_pct, 0) }} % portfólia. Scenáre 3 / 5 / 7 % platia pre rozložené ETF — jedna firma
+                    môže dopadnúť výrazne lepšie aj horšie.
+                </div>
+            </div>
+
+            <!-- ── Scenáre ─────────────────────────────────────────────── -->
+            <Card v-if="projection?.ok" title="Tri scenáre" style="margin-top: 14px">
+                <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 14px">
+                    <div
+                        v-for="s in projection.scenarios"
+                        :key="s.key"
+                        style="display: flex; align-items: center; gap: 14px; flex-wrap: wrap; border-radius: 13px; padding: 13px 16px"
+                        :style="{ background: s.key === 'mid' ? '#f1effc' : '#f7f6f2' }"
+                    >
+                        <div style="min-width: 120px">
+                            <div style="font-size: 13px; font-weight: 800">{{ s.label }}</div>
+                            <div style="font-size: 11.5px; color: #9a9cab; font-weight: 600">{{ num(s.real_return, 0) }} % ročne po inflácii</div>
+                        </div>
+                        <div style="min-width: 110px">
+                            <div style="font-size: 11px; font-weight: 700; color: #8a8c9a">V roku {{ form.year }}</div>
+                            <div class="font-display" style="font-size: 17px; font-weight: 800">{{ eur(s.final) }}</div>
+                        </div>
+                        <div style="min-width: 100px">
+                            <div style="font-size: 11px; font-weight: 700; color: #8a8c9a">Mesačne</div>
+                            <div class="font-display" style="font-size: 17px; font-weight: 800">{{ eur(s.income) }}</div>
+                        </div>
+                        <div v-if="freedom" style="min-width: 90px">
+                            <div style="font-size: 11px; font-weight: 700; color: #8a8c9a">Sloboda</div>
+                            <div class="font-display" style="font-size: 17px; font-weight: 800">{{ s.freedom_year ?? '—' }}</div>
+                        </div>
                     </div>
                 </div>
             </Card>
 
-            <!-- ── Vydrží mi to? ───────────────────────────────────────── -->
-            <Card v-if="withdrawal" title="Vydrží mi to?" style="margin-top: 14px">
-                <template #right>
-                    <span style="font-size: 12px; font-weight: 600; color: #9a9cab">
-                        {{ withdrawal.duration }} rokov dôchodku · výber {{ eur(withdrawal.annual_withdrawal) }}/rok
-                    </span>
-                </template>
-
-                <div style="display: flex; flex-wrap: wrap; gap: 12px; margin-top: 16px">
-                    <div style="flex: 1.2; min-width: 230px; border-radius: 14px; padding: 18px 20px" :style="{ background: survivalTone.bg }">
-                        <div style="font-size: 12px; font-weight: 700; color: #6a6c7a">Šanca, že peniaze vydržia</div>
-                        <div class="font-display" style="font-weight: 800; font-size: 38px; letter-spacing: -1.2px; margin-top: 4px" :style="{ color: survivalTone.fg }">
-                            {{ num(withdrawal.success_pct, 1) }} %
-                        </div>
-                        <div style="font-size: 12px; color: #6a6c7a; font-weight: 600; line-height: 1.55; margin-top: 6px">
-                            <template v-if="withdrawal.depleted_year">
-                                V neúspešných cestách dôjdu okolo roku <b>{{ withdrawal.depleted_year }}</b> — teda po
-                                {{ withdrawal.depleted_after_years }} rokoch dôchodku.
-                            </template>
-                            <template v-else>Žiadna zo simulovaných ciest nedopadla tak, že by peniaze došli.</template>
-                        </div>
-                    </div>
-                    <div style="flex: 1; min-width: 200px; background: #f7f6f2; border-radius: 14px; padding: 18px 20px">
-                        <div style="font-size: 12px; font-weight: 700; color: #6a6c7a">Medián zostatku na konci</div>
-                        <div class="font-display" style="font-weight: 800; font-size: 26px; margin-top: 4px">{{ eur(withdrawal.median_left) }}</div>
-                        <div style="font-size: 11.5px; color: #8a8c9a; font-weight: 600; line-height: 1.55; margin-top: 6px">
-                            v dnešných eurách. Vysoký zostatok znamená, že v polovici scenárov by si mohol míňať viac.
-                        </div>
-                    </div>
-                </div>
-
-                <!-- bezpečná miera výberu pre TÚTO dĺžku dôchodku -->
-                <div style="font-size: 12.5px; font-weight: 800; color: #20212e; margin-top: 20px">
-                    Aká miera výberu je pri {{ withdrawal.duration }} rokoch bezpečná
-                </div>
-                <div style="font-size: 12px; color: #8a8c9a; font-weight: 600; line-height: 1.6; margin-top: 5px">
-                    Pravidlo 4 % pochádza z amerických dát a <b>30-ročného</b> dôchodku. Toto je prepočet na tvoju dĺžku, tvoje výdavky a
-                    historický rad, ktorý máš zvolený.
-                </div>
-
-                <div style="display: flex; flex-direction: column; gap: 7px; margin-top: 14px">
+            <!-- ── Z čoho to počítame ──────────────────────────────────── -->
+            <Card title="Z čoho to počítame" style="margin-top: 14px">
+                <div style="display: flex; flex-direction: column; margin-top: 10px">
                     <div
-                        v-for="r in withdrawal.rates"
-                        :key="r.rate"
-                        style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap; border-radius: 12px; padding: 11px 15px"
-                        :style="
-                            withdrawal.safe_rate && r.rate === withdrawal.safe_rate.rate
-                                ? { background: '#e6f7ec', border: '1.5px solid #2ba35a' }
-                                : { background: '#f7f6f2' }
-                        "
+                        v-for="row in inputRows"
+                        :key="row.label"
+                        style="display: flex; align-items: flex-start; gap: 12px; padding: 11px 0; border-bottom: 1px solid #f5f4ef"
                     >
-                        <span class="font-display" style="font-weight: 800; font-size: 15px; min-width: 54px">{{ num(r.rate, 2) }} %</span>
-                        <span style="font-size: 12.5px; font-weight: 600; color: #6a6c7a">treba {{ eur(r.needed) }}</span>
-                        <span style="margin-left: auto; display: flex; align-items: center; gap: 10px">
-                            <span style="width: 90px; height: 7px; border-radius: 4px; background: #eceae2; overflow: hidden; display: block">
-                                <span style="display: block; height: 100%; border-radius: 4px" :style="{ width: r.success_pct + '%', background: r.success_pct >= withdrawal.target ? '#2ba35a' : '#e8954e' }"></span>
-                            </span>
-                            <span class="font-display" style="font-weight: 800; font-size: 14px; min-width: 52px; text-align: right" :style="{ color: r.success_pct >= withdrawal.target ? '#2ba35a' : '#8a8c9a' }">
-                                {{ num(r.success_pct, 1) }} %
-                            </span>
-                        </span>
-                    </div>
-                </div>
-
-                <div
-                    style="display: flex; align-items: flex-start; gap: 9px; border-radius: 13px; padding: 13px 16px; margin-top: 14px"
-                    :style="withdrawal.safe_rate ? { background: '#f7f6f2' } : { background: '#fdeaea' }"
-                >
-                    <span style="font-size: 15px">{{ withdrawal.safe_rate ? '🎯' : '⚠️' }}</span>
-                    <div style="font-size: 12.5px; font-weight: 600; color: #6a6c7a; line-height: 1.6">
-                        <template v-if="withdrawal.safe_rate">
-                            Aby ti to vydržalo s pravdepodobnosťou aspoň {{ num(withdrawal.target, 0) }} %, vyberaj najviac
-                            <b>{{ num(withdrawal.safe_rate.rate, 2) }} %</b> ročne — teda nasporiť
-                            <b>{{ eur(withdrawal.safe_rate.needed) }}</b>.
-                            <template v-if="withdrawal.current_rate > withdrawal.safe_rate.rate">
-                                Máš nastavené {{ num(withdrawal.current_rate, 1) }} %, čo je viac.
-                            </template>
-                        </template>
-                        <template v-else>
-                            Pri {{ withdrawal.duration }} rokoch nedosiahne {{ num(withdrawal.target, 0) }} % úspešnosť ani výber 2,75 %. Skrátiť
-                            dôchodok, znížiť výdavky alebo nasporiť viac.
-                        </template>
-                    </div>
-                </div>
-
-                <div style="font-size: 11.5px; color: #9a9cab; font-weight: 600; line-height: 1.65; margin-top: 14px">
-                    Simuluje sa <b>súvislá cesta</b> od dneška cez sporenie až po posledný výber — tá istá náhodná postupnosť trhu, vrátane
-                    prechodu medzi fázami. Kým sporíš, prepad na začiatku je výhodný (vklady nakupujú lacno); pri výbere je ten istý prepad
-                    najhorší možný, lebo musíš predávať na dne a ten kapitál sa už zotavenia nezúčastní. Preto priemerný výnos o prežití
-                    portfólia nehovorí takmer nič a rozhoduje poradie.
-                </div>
-            </Card>
-
-            <!-- ── Čo keby som vkladal viac ────────────────────────────── -->
-            <Card v-if="scenarios && scenarioRows.length" title="Čo keby som vkladal viac" style="margin-top: 14px">
-                <template #right>
-                    <div style="display: flex; align-items: center; gap: 8px">
-                        <span style="font-size: 12px; font-weight: 600; color: #9a9cab">vlastná suma</span>
-                        <input
-                            v-model.number="compare"
-                            type="number"
-                            min="0"
-                            step="25"
-                            placeholder="napr. 250"
-                            style="
-                                width: 110px;
-                                background: #f7f6f2;
-                                border: 1.5px solid #eceae2;
-                                border-radius: 11px;
-                                padding: 8px 11px;
-                                font-size: 13.5px;
-                                font-weight: 700;
-                                color: #20212e;
-                                outline: none;
-                            "
-                        />
-                    </div>
-                </template>
-
-                <div style="display: flex; flex-direction: column; gap: 9px; margin-top: 16px">
-                    <div
-                        v-for="row in scenarioRows"
-                        :key="row.monthly"
-                        style="border-radius: 14px; padding: 14px 16px"
-                        :style="row.current ? { background: '#f7f6f2', border: `1.5px solid ${primary}` } : { background: '#f7f6f2' }"
-                    >
-                        <div style="display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap">
-                            <span class="font-display" style="font-weight: 800; font-size: 17px; min-width: 92px">{{ eur(row.monthly) }}</span>
+                        <div style="flex: 1; min-width: 0">
+                            <div style="font-size: 13px; font-weight: 700">{{ row.label }}</div>
+                            <div style="font-size: 11.5px; color: #8a8c9a; font-weight: 600; line-height: 1.5; margin-top: 2px">{{ row.note }}</div>
+                        </div>
+                        <div style="text-align: right; flex-shrink: 0">
+                            <div class="font-display" style="font-size: 14.5px; font-weight: 800">{{ row.value }}</div>
                             <span
-                                v-if="row.current"
-                                style="font-size: 10.5px; font-weight: 800; color: #fff; padding: 3px 8px; border-radius: 20px"
-                                :style="{ background: primary }"
-                                >TERAZ</span
-                            >
-                            <span v-else-if="row.extra" style="font-size: 11.5px; font-weight: 700; color: #2ba35a">+{{ eur(row.extra) }}/mes.</span>
-
-                            <span style="margin-left: auto; display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap">
-                                <span>
-                                    <span style="font-size: 11px; color: #8a8c9a; font-weight: 700">renta </span>
-                                    <span class="font-display" style="font-weight: 800; font-size: 16px">{{ eur(row.income_p50) }}</span>
-                                </span>
-                                <span v-if="row.freedom_year">
-                                    <span style="font-size: 11px; color: #8a8c9a; font-weight: 700">sloboda </span>
-                                    <span class="font-display" style="font-weight: 800; font-size: 16px">{{ row.freedom_year }}</span>
-                                    <span v-if="(yearsEarlier(row) ?? 0) > 0" style="font-size: 11.5px; font-weight: 700; color: #2ba35a">
-                                        · o {{ yearsEarlier(row) }} r. skôr
-                                    </span>
-                                </span>
-                            </span>
-                        </div>
-
-                        <div style="height: 8px; border-radius: 4px; background: #eceae2; overflow: hidden; margin-top: 10px">
-                            <div
-                                style="height: 100%; border-radius: 4px"
-                                :style="{ width: (row.real_p50 / scenarioMax) * 100 + '%', background: row.current ? primary : '#b8b6ac' }"
-                            ></div>
-                        </div>
-                        <div style="font-size: 11.5px; color: #8a8c9a; font-weight: 600; margin-top: 7px">
-                            V roku {{ form.year }} by si mal {{ eur(row.real_p50) }} v dnešných eurách · vložil by si {{ eur(row.contributed) }}
-                        </div>
-                    </div>
-                </div>
-
-                <div style="font-size: 11.5px; color: #9a9cab; font-weight: 600; line-height: 1.6; margin-top: 14px">
-                    Všetko sú stredné scenáre v dnešných eurách. Rok slobody je prvý rok, v ktorom by portfólio pokrylo tvoje výdavky pri výbere
-                    {{ num(form.withdrawal, 1) }} % ročne. Táto tabuľka nemení tvoj uložený plán — len ukazuje, čo by iné tempo spravilo.
-                </div>
-            </Card>
-
-            <!-- ── Koľko z plánu stojí na krypte ───────────────────────── -->
-            <Card v-if="projection?.without_volatile" title="Čo keby krypto skončilo na nule" style="margin-top: 14px">
-                <template #right>
-                    <span style="font-size: 12px; font-weight: 600; color: #9a9cab">
-                        {{ num(projection.without_volatile.excluded_share, 0) }} % portfólia
-                    </span>
-                </template>
-
-                <div style="font-size: 12.5px; color: #8a8c9a; font-weight: 600; line-height: 1.6; margin-top: 10px">
-                    Projekcia počíta s výnosom diverzifikovaného akciového indexu. Tvoje portfólio je ale z veľkej časti krypto, ktoré sa správa inak.
-                    Toto nie je predpoveď, že o všetko prídeš — je to odpoveď na otázku, koľko z tvojho plánu na tom jednom aktíve stojí.
-                </div>
-
-                <div style="display: flex; flex-wrap: wrap; gap: 12px; margin-top: 16px">
-                    <div style="flex: 1; min-width: 200px; background: #f7f6f2; border-radius: 14px; padding: 16px 18px">
-                        <div style="font-size: 12px; font-weight: 700; color: #6a6c7a">S krypto­menami</div>
-                        <div class="font-display" style="font-weight: 800; font-size: 24px; margin-top: 5px" :style="{ color: primary }">
-                            {{ eur(projection.final.real.p50) }}
-                        </div>
-                        <div style="font-size: 11.5px; color: #8a8c9a; font-weight: 600; margin-top: 4px">
-                            renta {{ eur(projection.final.income.p50) }}<template v-if="freedom?.year"> · sloboda {{ freedom.year }}</template>
-                        </div>
-                    </div>
-                    <div style="flex: 1; min-width: 200px; background: #fdeaea; border-radius: 14px; padding: 16px 18px">
-                        <div style="font-size: 12px; font-weight: 700; color: #6a6c7a">Bez nich</div>
-                        <div class="font-display" style="font-weight: 800; font-size: 24px; margin-top: 5px; color: #c0453f">
-                            {{ eur(projection.without_volatile.real_p50 ?? 0) }}
-                        </div>
-                        <div style="font-size: 11.5px; color: #8a6a6a; font-weight: 600; margin-top: 4px">
-                            renta {{ eur(projection.without_volatile.income_p50 ?? 0)
-                            }}<template v-if="projection.without_volatile.freedom_year">
-                                · sloboda {{ projection.without_volatile.freedom_year }}</template
+                                style="
+                                    display: inline-block;
+                                    font-size: 10.5px;
+                                    font-weight: 800;
+                                    padding: 2px 8px;
+                                    border-radius: 20px;
+                                    margin-top: 4px;
+                                "
+                                :style="sourceStyle[row.source]"
+                                >{{ sourceLabel[row.source] }}</span
                             >
                         </div>
                     </div>
                 </div>
-
-                <div
-                    style="
-                        display: flex;
-                        align-items: flex-start;
-                        gap: 9px;
-                        background: #f7f6f2;
-                        border-radius: 13px;
-                        padding: 13px 16px;
-                        margin-top: 12px;
-                    "
-                >
-                    <span style="font-size: 15px">🎯</span>
-                    <div style="font-size: 12.5px; font-weight: 600; color: #6a6c7a; line-height: 1.6">
-                        <template v-if="projection.without_volatile.years_later">
-                            Bez krypta by sloboda prišla o <b>{{ projection.without_volatile.years_later }} rokov neskôr</b>. Toľko rokov práce dnes
-                            stojí na {{ eur(projection.without_volatile.excluded) }} v jednom aktíve.
-                        </template>
-                        <template v-else>
-                            Rozdiel je {{ eur((projection.final.real.p50 ?? 0) - (projection.without_volatile.real_p50 ?? 0)) }} v dnešných eurách.
-                        </template>
-                        Čím viac nových peňazí pôjde do ETF, tým menej bude plán závisieť od jedného titulu — a to sa deje samo, aj bez predaja.
-                    </div>
-                </div>
             </Card>
 
-            <!-- ── Cieľ ────────────────────────────────────────────────── -->
-            <Card v-if="projection?.ok && projection.target" title="Dosiahneš svoj cieľ?" style="margin-top: 14px">
-                <div style="display: flex; flex-wrap: wrap; gap: 12px; margin-top: 16px">
-                    <div style="flex: 1; min-width: 190px; border-radius: 14px; padding: 16px 18px" :style="{ background: successTone.bg }">
-                        <div style="font-size: 12px; font-weight: 700; color: #6a6c7a">Šanca na rentu {{ eur(projection.target.income) }}/mes.</div>
-                        <div class="font-display" style="font-weight: 800; font-size: 30px; margin-top: 6px" :style="{ color: successTone.fg }">
-                            {{ num(projection.target.success_pct, 1) }} %
-                        </div>
-                        <div style="font-size: 11.5px; color: #8a8c9a; font-weight: 600; margin-top: 4px">
-                            scenárov končí nad cieľom pri vklade {{ eur(form.monthly) }}/mes.
-                        </div>
-                    </div>
-
-                    <div style="flex: 1; min-width: 190px; background: #f7f6f2; border-radius: 14px; padding: 16px 18px">
-                        <div style="font-size: 12px; font-weight: 700; color: #6a6c7a">Stačí vkladať (stredný scenár)</div>
-                        <div class="font-display" style="font-weight: 800; font-size: 30px; margin-top: 6px">
-                            {{ projection.target.required_monthly === null ? '—' : eur(projection.target.required_monthly) }}
-                        </div>
-                        <div
-                            v-if="projection.target.required_delta !== null"
-                            style="font-size: 11.5px; font-weight: 700; margin-top: 4px"
-                            :style="{ color: projection.target.required_delta > 0 ? '#e8544e' : '#2ba35a' }"
-                        >
-                            {{
-                                projection.target.required_delta > 0
-                                    ? 'o ' + eur(projection.target.required_delta) + ' viac než teraz'
-                                    : 'o ' + eur(Math.abs(projection.target.required_delta)) + ' menej než teraz'
-                            }}
-                        </div>
-                    </div>
-
-                    <div style="flex: 1; min-width: 190px; background: #f7f6f2; border-radius: 14px; padding: 16px 18px">
-                        <div style="font-size: 12px; font-weight: 700; color: #6a6c7a">Na istotu (90 % scenárov)</div>
-                        <div class="font-display" style="font-weight: 800; font-size: 30px; margin-top: 6px">
-                            {{ projection.target.required_monthly_safe === null ? '—' : eur(projection.target.required_monthly_safe) }}
-                        </div>
-                        <div style="font-size: 11.5px; color: #8a8c9a; font-weight: 600; margin-top: 4px">
-                            vklad, pri ktorom cieľ vyjde aj v zlých dekádach
-                        </div>
-                    </div>
-                </div>
-            </Card>
-
-            <!-- ── Odkiaľ sú čísla ─────────────────────────────────────── -->
-            <Card v-if="projection?.ok" title="Odkiaľ sú čísla" style="margin-top: 14px">
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-top: 16px">
-                    <div style="background: #f7f6f2; border-radius: 14px; padding: 14px 16px">
-                        <div style="font-size: 11.5px; font-weight: 700; color: #8a8c9a">Historický výnos</div>
-                        <div class="font-display" style="font-weight: 800; font-size: 22px; margin-top: 4px">
-                            {{ num(projection.engine.cagr, 1) }} % p.a.
-                        </div>
-                        <div style="font-size: 11.5px; color: #8a8c9a; font-weight: 600; margin-top: 3px">
-                            {{ projection.engine.label }}<br />{{ projection.engine.from }} – {{ projection.engine.to }} ·
-                            {{ num(projection.engine.years, 0) }} rokov
-                        </div>
-                    </div>
-                    <div style="background: #f7f6f2; border-radius: 14px; padding: 14px 16px">
-                        <div style="font-size: 11.5px; font-weight: 700; color: #8a8c9a">Po poplatkoch a zrážke</div>
-                        <div class="font-display" style="font-weight: 800; font-size: 22px; margin-top: 4px">
-                            {{ num(projection.engine.net_cagr, 1) }} % p.a.
-                        </div>
-                        <div style="font-size: 11.5px; color: #8a8c9a; font-weight: 600; margin-top: 3px">
-                            −{{ num(projection.engine.drag, 2) }} p.b. ročne
-                        </div>
-                    </div>
-                    <div style="background: #f7f6f2; border-radius: 14px; padding: 14px 16px">
-                        <div style="font-size: 11.5px; font-weight: 700; color: #8a8c9a">Reálne, po inflácii</div>
-                        <div
-                            class="font-display"
-                            style="font-weight: 800; font-size: 22px; margin-top: 4px"
-                            :style="{ color: projection.engine.real_cagr >= 0 ? '#2ba35a' : '#e8544e' }"
-                        >
-                            {{ num(projection.engine.real_cagr, 1) }} % p.a.
-                        </div>
-                        <div style="font-size: 11.5px; color: #8a8c9a; font-weight: 600; margin-top: 3px">skutočný rast kúpnej sily</div>
-                    </div>
-                    <div style="background: #f7f6f2; border-radius: 14px; padding: 14px 16px">
-                        <div style="font-size: 11.5px; font-weight: 700; color: #8a8c9a">Kolísavosť trhu</div>
-                        <div class="font-display" style="font-weight: 800; font-size: 22px; margin-top: 4px">
-                            {{ num(projection.engine.vol, 1) }} %
-                        </div>
-                        <div style="font-size: 11.5px; color: #8a8c9a; font-weight: 600; margin-top: 3px">
-                            najhorší mesiac {{ num(projection.engine.worst_month, 1) }} %
-                        </div>
-                    </div>
-                </div>
-
-                <div
-                    style="
-                        background: #f7f6f2;
-                        border-radius: 14px;
-                        padding: 16px 18px;
-                        margin-top: 12px;
-                        font-size: 12.5px;
-                        color: #6a6c7a;
-                        font-weight: 600;
-                        line-height: 1.7;
-                    "
-                >
-                    <div style="font-weight: 800; color: #20212e; margin-bottom: 6px">Ako to počítame</div>
-                    Neberieme jeden „priemerný výnos". Namiesto toho {{ num(projection.paths) }}× náhodne poskladáme budúcnosť z reálnych
-                    {{ projection.engine.months }} mesiacov histórie indexu {{ projection.engine.label }} — po dvanásťmesačných blokoch, aby ostali
-                    zachované aj krízy a zotavenia tak, ako naozaj prebehli. Z toho vzniknú pásma: stredný scenár je medián, tmavší pás pokrýva
-                    polovicu scenárov, svetlejší 80 %. <br /><br />
-                    Infláciu {{ num(projection.inflation.used, 1) }} % berieme z reálnych dát ECB (HICP Slovensko,
-                    {{ projection.inflation.sk_from }} – {{ projection.inflation.sk_to }}, priemer za 20 rokov
-                    {{ num(projection.inflation.sk_avg20 ?? 0, 1) }} %, eurozóna {{ num(projection.inflation.eu_avg20 ?? 0, 1) }} %). Mesačná renta
-                    vychádza z pravidla {{ num(form.withdrawal, 1) }} % — toľko si ročne vyberáš z portfólia, aby ti vydržalo. <br /><br />
-                    <b style="color: #20212e">Čo to nie je:</b> záruka. Posledné dekády boli pre akcie mimoriadne priaznivé, preto je v modeli
-                    konzervatívna zrážka {{ num(form.haircut, 2) }} p.b. Model neráta dane z výnosov, zmeny menového kurzu ani to, že do dôchodku
-                    prídeš aj s iným majetkom či štátnym dôchodkom.
+            <!-- ── Ako to počítame ─────────────────────────────────────── -->
+            <Card title="Ako to počítame" style="margin-top: 14px">
+                <div style="font-size: 12.5px; color: #6a6c7a; font-weight: 600; line-height: 1.7; margin-top: 12px">
+                    Nikto nevie, aký výnos trh prinesie na 30–40 rokov, a práve od toho výsledok závisí najviac. Preto appka nepredstiera presnosť a
+                    ukazuje tri predpoklady: 3, 5 a 7 % ročne po inflácii aj poplatkoch. Stredných 5 % zodpovedá dlhodobému reálnemu výnosu svetových
+                    akcií za vyše sto rokov (Dimson, Marsh, Staunton); posledné dekády boli lepšie, ale na to sa spoliehať nedá. <br /><br />
+                    Všetko je v dnešných eurách — vklad aj výdavky berieme, ako keby rástli s infláciou. Suma potrebná na slobodu je ročné výdavky
+                    delené mierou výberu. So štátnym dôchodkom sa nepočíta — ak nejaký príde, je to rezerva navyše. <br /><br />
+                    Výnosy predpokladajú rozložené svetové akciové ETF. S kryptom sa počíta podľa tvojej voľby v karte Krypto v pláne — na neho sa
+                    dlhodobý výnos predpokladať nedá. <br /><br />
+                    <b style="color: #20212e">Čo to nie je:</b> predpoveď ani záruka. Model neráta s daňami, s kolísaním trhu tesne pred odchodom ani
+                    s tým, že sa ti zmení príjem či výdavky.
                 </div>
             </Card>
         </div>

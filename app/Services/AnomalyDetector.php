@@ -11,8 +11,7 @@ use Carbon\CarbonImmutable;
  *
  * Zámerne bez AI: „koľkonásobok bežnej sumy" je otázka na medián, nie na
  * jazykový model. Štatistika je tu presná, okamžitá, zadarmo a pri rovnakých
- * dátach vždy rovnaká — model by dal drahšiu a menej spoľahlivú odpoveď.
- * AI má zmysel až na vysvetlenie „prečo", a to rieši asistent.
+ * dátach vždy rovnaká.
  */
 class AnomalyDetector
 {

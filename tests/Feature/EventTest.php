@@ -134,7 +134,7 @@ class EventTest extends TestCase
         $this->assertSame($event->id, $expenses['one_off_events'][0]['id']);
     }
 
-    public function test_the_savings_rate_treats_event_spending_as_one_off(): void
+    public function test_event_spending_stays_in_consumption_and_the_savings_rate(): void
     {
         $lastMonth = CarbonImmutable::today()->subMonthNoOverflow()->startOfMonth();
         $event = $this->event(['starts_on' => $lastMonth, 'ends_on' => $lastMonth->addDays(5)]);
@@ -146,9 +146,10 @@ class EventTest extends TestCase
 
         $measured = app(FinancialProfileService::class)->forUser($this->user)['measured'];
 
+        // dovolenka sa nezopakuje, ale nejaká ďalšia príde — peniaze sú preč
         $this->assertSame(180.0, $measured['expense']);
-        $this->assertSame(30.0, $measured['one_off']);
-        $this->assertSame(150.0, $measured['recurring_expense']);
+        $this->assertSame(180.0, $measured['consumption']);
+        $this->assertSame(91.0, $measured['savings_rate']);
     }
 
     public function test_the_spending_pace_counts_an_event_only_once(): void

@@ -91,7 +91,7 @@ interface SavingsRate {
     series: SrMonth[];
     windows: Record<
         number,
-        { months: number; income: number; expense: number; rate: number | null; gross_rate: number | null; savings_flow: number; one_off: number }
+        { months: number; income: number; expense: number; rate: number | null; gross_rate: number | null; savings_flow: number }
     >;
     current: number | null;
     best: number | null;
@@ -360,16 +360,12 @@ const toneColor: Record<string, string> = { good: '#2ba35a', warn: '#c0453f', in
                     </div>
 
                     <div
-                        v-if="savingsRate.windows[12].savings_flow > 0 || savingsRate.windows[12].one_off > 0"
+                        v-if="savingsRate.windows[12].savings_flow > 0"
                         style="font-size: 11.5px; color: #8a8c9a; font-weight: 600; line-height: 1.65; margin-top: 12px"
                     >
                         Miera úspor sa počíta zo spotreby, nie z hrubého rozdielu príjmov a výdavkov. Za posledný rok sme z výdavkov vyňali
-                        <template v-if="savingsRate.windows[12].savings_flow > 0"
-                            ><b>{{ eur(savingsRate.windows[12].savings_flow) }}</b> poslaných do portfólia</template
-                        ><template v-if="savingsRate.windows[12].savings_flow > 0 && savingsRate.windows[12].one_off > 0"> a </template
-                        ><template v-if="savingsRate.windows[12].one_off > 0"
-                            ><b>{{ eur(savingsRate.windows[12].one_off) }}</b> jednorazových výdavkov</template
-                        >. Bez tohto očistenia by ti vyšlo
+                        <b>{{ eur(savingsRate.windows[12].savings_flow) }}</b> poslaných do portfólia. Jednorazové výdavky v spotrebe ostávajú —
+                        nejaké prídu vždy. Bez očistenia o portfólio by ti vyšlo
                         <b>{{ savingsRate.windows[12].gross_rate === null ? '—' : num(savingsRate.windows[12].gross_rate, 1) + ' %' }}</b
                         >, čo by tvrdilo, že míňaš viac, než zarábaš — hoci si tie peniaze odložil.
                     </div>

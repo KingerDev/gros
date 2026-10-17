@@ -84,40 +84,6 @@ class FinanceService
         ];
     }
 
-    /** Finančná rezerva: koľko mesiacov priemerných výdavkov pokryje hotovosť. */
-    public function reserve(User $user): array
-    {
-        $avg = $this->avgMonthlyExpense($user);
-        $cash = $this->cash($user);
-
-        return [
-            'avgExpense' => round($avg, 2),
-            'months' => $avg > 0 ? round($cash / $avg, 1) : null,
-        ];
-    }
-
-    /** Priemerné mesačné výdavky za posledných 6 ukončených mesiacov s dátami — bez udalostí. */
-    protected function avgMonthlyExpense(User $user): float
-    {
-        $today = CarbonImmutable::today();
-        $sum = 0.0;
-        $counted = 0;
-
-        for ($i = 1; $i <= 6; $i++) {
-            $m = $today->subMonthsNoOverflow($i);
-            $exp = (float) $this->classifier->excludeSavings($user->transactions()->analyzed()->routine(), $user)
-                ->where('type', 'expense')
-                ->whereDate('date', '>=', $m->startOfMonth()->toDateString())->whereDate('date', '<=', $m->endOfMonth()->toDateString())
-                ->sum(Transaction::netExpression());
-            if ($exp > 0) {
-                $sum += $exp;
-                $counted++;
-            }
-        }
-
-        return $counted > 0 ? $sum / $counted : 0.0;
-    }
-
     /** Čerpanie rozpočtov v ich aktuálnom období + projekcia tempa. */
     public function budgetProgress(User $user): Collection
     {

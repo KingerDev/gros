@@ -8,7 +8,7 @@ use Carbon\CarbonImmutable;
 /**
  * Mesačná séria čistého imania = hotovosť + portfólio − dlhy.
  * Hotovosť sa rekonštruuje spätne z aktuálnych zostatkov a tokov transakcií,
- * portfólio z PortfolioHistoryService, dlhy sa odhadujú spätne zo splátok.
+ * portfólio z PortfolioHistoryService, dlhy sa odhadujú spätne zo splátok a úroku.
  */
 class NetWorthService
 {
@@ -119,26 +119,29 @@ class NetWorthService
     }
 
     /**
-     * Dlhy (kind=owe) spätne: zostatok pred N mesiacmi ≈ dnešný zostatok
-     * + N × splátka, ohraničené istinou. Bez splátky konštantný zostatok.
+     * Dlhy (kind=owe) spätne: každá splátka sa rozdelí na úrok a istinu, takže
+     * zostatok pred mesiacom = (dnešný zostatok + splátka) / (1 + mesačná
+     * sadzba). Ohraničené istinou; bez splátky konštantný zostatok.
      *
      * @param  array<int, string>  $months
      * @return array<string, float>
      */
     protected function debtSeries(User $user, array $months, CarbonImmutable $end): array
     {
-        $loans = $user->loans()->where('kind', 'owe')->get(['balance', 'principal', 'payment']);
+        $loans = $user->loans()->where('kind', 'owe')->get(['balance', 'principal', 'payment', 'rate']);
 
         $out = [];
         foreach ($months as $ym) {
-            $monthsAgo = CarbonImmutable::parse($ym.'-01')->diffInMonths($end);
+            $monthsAgo = (int) CarbonImmutable::parse($ym.'-01')->diffInMonths($end);
             $sum = 0.0;
             foreach ($loans as $loan) {
-                $est = (float) $loan->balance + $monthsAgo * (float) $loan->payment;
-                if ((float) $loan->principal > 0) {
-                    $est = min($est, (float) $loan->principal);
+                $est = (float) $loan->balance;
+                $monthlyRate = (float) $loan->rate / 100 / 12;
+                $cap = (float) $loan->principal > 0 ? (float) $loan->principal : INF;
+                for ($i = 0; $i < $monthsAgo && $est < $cap; $i++) {
+                    $est = ($est + (float) $loan->payment) / (1 + $monthlyRate);
                 }
-                $sum += $est;
+                $sum += min($est, $cap);
             }
             $out[$ym] = $sum;
         }

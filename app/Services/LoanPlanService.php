@@ -8,12 +8,12 @@ use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 
 /**
- * Umorovanie úveru a odpoveď na najčastejšiu otázku osobných financií:
+ * Umorovanie úveru a podklad k najčastejšej otázke osobných financií:
  * mám voľné peniaze poslať na splátku, alebo do portfólia?
  *
- * Porovnanie je poctivé len keď sa obe strany merajú rovnako — preto sa
- * ušetrený úrok aj výnos počítajú k tomu istému dátumu (doplatenie úveru
- * pri mimoriadnej splátke) a v dnešných eurách.
+ * Obe strany sa merajú rovnako — k tomu istému dátumu a nominálne, lebo aj
+ * úroková sadzba úveru je nominálna. Verdikt sa zámerne nevynáša: ušetrený
+ * úrok je istý, výnos portfólia len očakávaný. Rozhodnúť musí človek.
  */
 class LoanPlanService
 {
@@ -29,12 +29,12 @@ class LoanPlanService
      */
     public function forUser(User $user, float $extra = 100.0): array
     {
-        $realReturn = $this->retirement->realReturnAssumption($user);
+        $expected = $this->retirement->expectedNominalReturn();
 
         $loans = $user->loans()->where('kind', 'owe')->where('balance', '>', 0)->get();
         $plans = [];
         foreach ($loans as $loan) {
-            $plan = $this->forLoan($loan, $extra, $realReturn);
+            $plan = $this->forLoan($loan, $extra, $expected);
             if ($plan !== null) {
                 $plans[$loan->id] = $plan;
             }
@@ -42,7 +42,10 @@ class LoanPlanService
 
         return [
             'extra' => $extra,
-            'real_return' => $realReturn,
+            // nominálny očakávaný výnos — porovnateľný so sadzbou úveru
+            'expected_return' => $expected,
+            'real_return' => $this->retirement->realReturnAssumption($user),
+            'inflation' => RetirementService::LONG_RUN_INFLATION,
             'loans' => $plans,
             // ktorý dlh sa oplatí splácať prednostne (najvyššia sadzba)
             'priority_id' => $this->priorityLoanId($loans),
@@ -50,10 +53,11 @@ class LoanPlanService
     }
 
     /**
+     * @param  float  $expectedReturnPct  očakávaný NOMINÁLNY výnos portfólia
      * @return array<string, mixed>|null null, ak sa úver pri danej splátke
      *                                   nikdy nesplatí (splátka nepokryje úrok)
      */
-    public function forLoan(Loan $loan, float $extra, float $realReturnPct): ?array
+    public function forLoan(Loan $loan, float $extra, float $expectedReturnPct): ?array
     {
         $balance = (float) $loan->balance;
         $payment = (float) $loan->payment;
@@ -94,35 +98,39 @@ class LoanPlanService
                 'payoff_date' => $start->addMonths(max(0, $faster['months'] - 1))->toDateString(),
                 'interest_saved' => round($savedInterest, 2),
             ],
-            'compare' => $faster === null ? null : $this->compare($payment, $extra, $base['months'], $faster['months'], $realReturnPct),
+            'compare' => $faster === null ? null : $this->compare($payment, $extra, $base['months'], $faster['months'], $rate, $expectedReturnPct),
         ];
     }
 
     /**
-     * Poctivé porovnanie dvoch stratégií na rovnakom horizonte — po mesiaci,
-     * v ktorom by úver skončil aj bez mimoriadnych splátok. Obe končia bez
-     * dlhu, takže rozhoduje čisto to, čo zostane v portfóliu:
+     * Porovnanie dvoch stratégií na rovnakom horizonte — po mesiaci, v ktorom
+     * by úver skončil aj bez mimoriadnych splátok. Obe končia bez dlhu, takže
+     * rozhoduje to, čo zostane v portfóliu:
      *
      *  A) Splácať skôr — úver zmizne v mesiaci $fastMonths a odvtedy ide do
      *     portfólia celá splátka aj to extra.
      *  B) Investovať hneď — extra ide do portfólia od začiatku, úver beží
      *     podľa pôvodného plánu.
      *
+     * Výsledok B platí len vtedy, ak trh naozaj prinesie očakávaný výnos;
+     * výsledok A je istý. Preto sa vracia aj sadzba úveru ako „istý výnos".
+     *
      * @return array<string, mixed>
      */
-    protected function compare(float $payment, float $extra, int $baseMonths, int $fastMonths, float $realReturnPct): array
+    protected function compare(float $payment, float $extra, int $baseMonths, int $fastMonths, float $loanRatePct, float $expectedReturnPct): array
     {
-        $repayFirst = $this->futureValueOfMonthly($payment + $extra, max(0, $baseMonths - $fastMonths), $realReturnPct);
-        $investFirst = $this->futureValueOfMonthly($extra, $baseMonths, $realReturnPct);
+        $repayFirst = $this->futureValueOfMonthly($payment + $extra, max(0, $baseMonths - $fastMonths), $expectedReturnPct);
+        $investFirst = $this->futureValueOfMonthly($extra, $baseMonths, $expectedReturnPct);
 
         return [
             'horizon_months' => $baseMonths,
-            'real_return' => $realReturnPct,
+            // splatenie úveru je istý výnos vo výške jeho sadzby
+            'guaranteed_return' => round($loanRatePct, 2),
+            'expected_return' => round($expectedReturnPct, 2),
             'repay_first' => round($repayFirst, 2),
             'invest_first' => round($investFirst, 2),
-            // kladné = oplatí sa radšej investovať
+            // kladné = investovanie vychádza lepšie, ak sa očakávanie naplní
             'advantage' => round($investFirst - $repayFirst, 2),
-            'verdict' => $investFirst > $repayFirst ? 'invest' : 'repay',
         ];
     }
 
@@ -162,14 +170,14 @@ class LoanPlanService
         return ['months' => $months, 'interest' => round($interest, 2)];
     }
 
-    /** Budúca hodnota mesačného vkladu v dnešných eurách (reálny výnos). */
-    protected function futureValueOfMonthly(float $amount, int $months, float $realRatePct): float
+    /** Budúca hodnota mesačného vkladu (nominálne, ako splátky úveru). */
+    protected function futureValueOfMonthly(float $amount, int $months, float $ratePct): float
     {
         if ($months <= 0 || $amount <= 0) {
             return 0.0;
         }
 
-        $r = (1 + $realRatePct / 100) ** (1 / 12) - 1;
+        $r = (1 + $ratePct / 100) ** (1 / 12) - 1;
         if ($r <= 1e-9) {
             return $amount * $months;
         }

@@ -79,7 +79,7 @@ const props = defineProps<{
     stats: { netWorth: number; grossWorth: number; cash: number; income: number; expense: number; saved: number; savedPct: number };
     prevStats: { label: string; income: number; expense: number; saved: number } | null;
     netWorthSeries: NetWorthMonth[];
-    reserve: { avgExpense: number; months: number | null };
+    reserve: { essential: number; months: number | null; target_months: number; gap: number; progress_pct: number; has_data: boolean };
     anomalies: {
         id: number;
         date: string;
@@ -117,23 +117,20 @@ const expenseDelta = computed(() => deltaPct(props.stats.expense, props.prevStat
 const savedDelta = computed(() => deltaPct(props.stats.saved, props.prevStats?.saved));
 
 // ── Núdzový fond ────────────────────────────────────────────────────────
-/** Odporúčaná rezerva: šesť mesiacov výdavkov. */
-const RESERVE_TARGET = 6;
-
-const reservePct = computed(() => Math.min(100, ((props.reserve.months ?? 0) / RESERVE_TARGET) * 100));
+// Cieľ aj výdavky sú tie isté ako na stránke Rezerva.
+const reservePct = computed(() => props.reserve.progress_pct);
 
 const reserveColor = computed(() => {
-    const m = props.reserve.months ?? 0;
-    if (m >= RESERVE_TARGET) return '#2ba35a';
-    if (m >= 3) return '#e8954e';
+    const pct = props.reserve.progress_pct;
+    if (pct >= 100) return '#2ba35a';
+    if (pct >= 50) return '#e8954e';
     return '#e8544e';
 });
 
 const reserveLabel = computed(() => {
-    const m = props.reserve.months ?? 0;
-    if (m >= RESERVE_TARGET) return `Rezerva je plná — ${RESERVE_TARGET} mesiacov výdavkov máš pokrytých.`;
-    const missing = Math.max(0, RESERVE_TARGET * props.reserve.avgExpense - (props.reserve.months ?? 0) * props.reserve.avgExpense);
-    return `Do šesťmesačnej rezervy chýba ${eur(missing)}. Bez nej ťa prvý krach donúti predať investície.`;
+    const target = props.reserve.target_months;
+    if (props.reserve.gap <= 0) return `Rezerva je plná — ${num(target, 0)} mes. nevyhnutných výdavkov máš pokrytých.`;
+    return `Do cieľa ${num(target, 0)} mes. chýba ${eur(props.reserve.gap)}.`;
 });
 
 // Vývoj čistého imania
@@ -343,7 +340,7 @@ const planColor = computed(() =>
 
                 <StatCard
                     label="Rezerva"
-                    :value="reserve.months !== null ? num(reserve.months, 1) + ' mes.' : '—'"
+                    :value="reserve.months !== null && reserve.has_data ? num(reserve.months, 1) + ' mes.' : '—'"
                     value-color="#9775fa"
                     icon-bg="#f0ebfe"
                 >
@@ -361,7 +358,7 @@ const planColor = computed(() =>
                             <path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z" />
                         </svg>
                     </template>
-                    <template v-if="reserve.months !== null">
+                    <template v-if="reserve.months !== null && reserve.has_data">
                         <div style="height: 6px; border-radius: 4px; background: #f1efe8; overflow: hidden; margin-top: 10px">
                             <div style="height: 100%; border-radius: 4px" :style="{ width: reservePct + '%', background: reserveColor }"></div>
                         </div>

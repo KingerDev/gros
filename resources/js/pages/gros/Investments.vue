@@ -81,12 +81,13 @@ interface Analytics {
     realized: number;
     profit_total: number;
     xirr: number | null;
+    annualized: boolean;
     simple_pct: number;
     years_investing: number;
     first_purchase: string;
     avg_monthly_contribution: number;
     risk:
-        | { ok: false; months: number }
+        | { ok: false; months: number; required?: number }
         | {
               ok: true;
               months: number;
@@ -499,7 +500,9 @@ function exportCsv() {
                                 {{ analytics.xirr === null ? '—' : (analytics.xirr >= 0 ? '+' : '−') + num(Math.abs(analytics.xirr), 1) + ' %' }}
                             </div>
                             <div style="font-size: 11.5px; color: #8a8c9a; font-weight: 600; margin-top: 3px">
-                                XIRR — zohľadňuje, kedy si vkladal. Hrubý zisk je {{ num(analytics.simple_pct, 1) }} %.
+                                <template v-if="analytics.annualized">XIRR — zohľadňuje, kedy si vkladal. </template>
+                                <template v-else>Ročný výnos sa ukáže po roku investovania — z kratšieho obdobia by bol prifúknutý. </template>
+                                Hrubý zisk je {{ num(analytics.simple_pct, 1) }} %.
                             </div>
                         </div>
                         <div v-if="risk" style="background: #f7f6f2; border-radius: 14px; padding: 14px 16px">
@@ -528,6 +531,14 @@ function exportCsv() {
                                 efektívnych pozícií z {{ analytics.allocation.positions }} · najväčšia {{ num(analytics.allocation.top_weight, 1) }} %
                             </div>
                         </div>
+                    </div>
+
+                    <div
+                        v-if="analytics.risk && !analytics.risk.ok && analytics.risk.required"
+                        style="font-size: 11.5px; color: #9a9cab; font-weight: 600; line-height: 1.55; margin-top: 10px"
+                    >
+                        Kolísavosť a najhorší prepad sa ukážu po {{ analytics.risk.required }} mesiacoch histórie (teraz {{ analytics.risk.months }})
+                        — z kratšieho obdobia by to bol skôr náhodný šum než vlastnosť portfólia.
                     </div>
 
                     <div
@@ -670,7 +681,7 @@ function exportCsv() {
                         <span style="flex: 1">
                             <span style="display: block; font-weight: 800; font-size: 14px">Kam ťa to dotiahne do dôchodku?</span>
                             <span style="display: block; font-size: 12px; font-weight: 600; opacity: 0.9; margin-top: 2px">
-                                Projekcia na historických dátach — s infláciou, pásmami pravdepodobnosti a mesačnou rentou
+                                Tri scenáre výnosu v dnešných eurách — rok slobody a mesačná renta
                             </span>
                         </span>
                         <svg

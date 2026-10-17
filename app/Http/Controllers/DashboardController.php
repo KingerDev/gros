@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Services\AnalyticsService;
 use App\Services\AnomalyDetector;
+use App\Services\EmergencyFundService;
 use App\Services\FinanceService;
 use App\Services\NetWorthService;
 use App\Services\SpendingPlanService;
@@ -21,6 +22,7 @@ class DashboardController extends Controller
         SpendingPlanService $plan,
         NetWorthService $netWorth,
         AnomalyDetector $anomalies,
+        EmergencyFundService $fund,
     ): Response {
         $user = $request->user();
         $period = Period::fromRequest($request);
@@ -61,7 +63,8 @@ class DashboardController extends Controller
                 'saved' => $prevSum['net'],
             ] : null,
             'netWorthSeries' => $netWorth->monthlySeries($user),
-            'reserve' => $finance->reserve($user),
+            // to isté číslo ako na stránke Rezerva — jedna definícia výdavkov
+            'reserve' => $this->reserveSummary($fund->forUser($user)),
             // nezvyčajné výdavky — čisto štatisticky, bez AI
             'anomalies' => $anomalies->recent($user),
             'insights' => array_slice($analytics->insights($user, $period), 0, 2),
@@ -79,5 +82,21 @@ class DashboardController extends Controller
             'loanOwed' => $loanOwed,
             'plan' => $plan->current($user),
         ]);
+    }
+
+    /**
+     * @param  array<string, mixed>  $report
+     * @return array<string, mixed>
+     */
+    protected function reserveSummary(array $report): array
+    {
+        return [
+            'essential' => $report['expenses']['essential'],
+            'months' => $report['covered_months'],
+            'target_months' => $report['months'],
+            'gap' => $report['gap'],
+            'progress_pct' => $report['progress_pct'],
+            'has_data' => $report['expenses']['has_data'],
+        ];
     }
 }

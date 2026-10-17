@@ -3,7 +3,6 @@
 namespace App\Http\Controllers;
 
 use App\Models\Subscription;
-use App\Services\OpportunityCostService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -12,7 +11,7 @@ use Inertia\Response;
 
 class SubscriptionController extends Controller
 {
-    public function index(Request $request, OpportunityCostService $cost): Response
+    public function index(Request $request): Response
     {
         $user = $request->user();
         $subs = $user->subscriptions()->orderBy('next_payment')->get();
@@ -24,8 +23,6 @@ class SubscriptionController extends Controller
             $yearly += $s->cycle === 'yearly' ? (float) $s->amount : (float) $s->amount * 12;
         }
 
-        $ctx = $cost->context($user);
-
         return Inertia::render('gros/Subscriptions', [
             'subscriptions' => $subs,
             'accounts' => $user->accounts()->orderBy('name')->get(['id', 'name']),
@@ -33,12 +30,6 @@ class SubscriptionController extends Controller
                 'monthly' => $monthly,
                 'yearly' => $yearly,
                 'count' => $subs->count(),
-            ],
-            // čím by tie isté peniaze boli, keby šli do portfólia
-            'opportunity' => [
-                'context' => $ctx,
-                'per_subscription' => $cost->subscriptions($user),
-                'total' => $cost->fromMonthly($monthly, $ctx['years'], $ctx['real_return']),
             ],
         ]);
     }
