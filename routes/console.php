@@ -10,3 +10,6 @@ Artisan::command('inspire', function () {
 
 // Každý deň vytvor transakcie za splatné predplatné a splátky úverov.
 Schedule::command('gros:process-payments')->dailyAt('06:00');
+
+// V nedeľu večer pošli do mobilnej appky push so zhrnutím výdavkov za týždeň.
+Schedule::command('gros:weekly-summary')->weeklyOn(0, '19:00')->timezone('Europe/Bratislava');

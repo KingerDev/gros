@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\PushTokenController;
 use App\Http\Controllers\Api\TokenController;
 use App\Http\Controllers\Settings\PreferenceController;
 use App\Http\Middleware\ArraySession;
@@ -34,6 +35,10 @@ Route::prefix('v1')->name('api.')->middleware([ArraySession::class, StartSession
 
     Route::middleware(['auth:sanctum', ProcessDuePayments::class, InertiaAsApi::class])->group(function () {
         Route::post('logout', [TokenController::class, 'destroy'])->name('logout');
+
+        // push notifikácie (týždenné zhrnutie) — registrácia zariadenia
+        Route::post('push-token', [PushTokenController::class, 'store'])->name('push-token.store');
+        Route::delete('push-token', [PushTokenController::class, 'destroy'])->name('push-token.destroy');
 
         Route::get('settings/preferences', [PreferenceController::class, 'edit'])->name('preferences.edit');
         Route::put('settings/preferences', [PreferenceController::class, 'update'])->name('preferences.update');
