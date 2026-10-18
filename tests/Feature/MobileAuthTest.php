@@ -9,6 +9,7 @@ use App\Services\AppleIdentity;
 use App\Support\DefaultCategories;
 use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Notification;
 use Inertia\Testing\AssertableInertia as Assert;
 use Mockery;
@@ -257,6 +258,56 @@ class MobileAuthTest extends TestCase
             ->assertJsonPath('catalog.kindLabels.stock', 'Akcia');
 
         $this->assertSame('sk', $user->fresh()->locale);
+    }
+
+    public function test_profile_can_be_updated_from_the_app(): void
+    {
+        $user = User::factory()->create();
+
+        $this->withToken($user->createToken('t')->plainTextToken)
+            ->patchJson('/api/v1/settings/profile', ['name' => 'Nové meno', 'email' => 'nove@example.com'])
+            ->assertOk()
+            ->assertJsonPath('ok', true);
+
+        $user->refresh();
+        $this->assertSame('Nové meno', $user->name);
+        $this->assertSame('nove@example.com', $user->email);
+        $this->assertNull($user->email_verified_at); // nový e-mail nie je overený
+    }
+
+    public function test_password_change_from_the_app_keeps_current_token(): void
+    {
+        $user = User::factory()->create(['password' => bcrypt('old-password')]);
+        $current = $user->createToken('this-phone')->plainTextToken;
+        $user->createToken('other-phone');
+
+        $this->withToken($current)
+            ->putJson('/api/v1/settings/password', ['current_password' => 'old-password', 'password' => 'new-password-1', 'password_confirmation' => 'new-password-1'])
+            ->assertOk();
+
+        $this->assertSame(['this-phone'], $user->tokens()->pluck('name')->all());
+        $this->withToken($current)->getJson('/api/v1/settings/preferences')->assertOk();
+    }
+
+    public function test_password_change_requires_current_password(): void
+    {
+        $user = User::factory()->create(['password' => bcrypt('old-password')]);
+
+        $this->withToken($user->createToken('t')->plainTextToken)
+            ->putJson('/api/v1/settings/password', ['current_password' => 'wrong', 'password' => 'new-password-1', 'password_confirmation' => 'new-password-1'])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('current_password');
+    }
+
+    public function test_apple_only_user_can_set_a_password(): void
+    {
+        $user = User::factory()->create(['password' => null]);
+
+        $this->withToken($user->createToken('t')->plainTextToken)
+            ->putJson('/api/v1/settings/password', ['password' => 'new-password-1', 'password_confirmation' => 'new-password-1'])
+            ->assertOk();
+
+        $this->assertTrue(Hash::check('new-password-1', $user->fresh()->password));
     }
 
     public function test_default_categories_follow_the_device_language(): void

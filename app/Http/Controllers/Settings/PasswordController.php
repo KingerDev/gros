@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rules\Password;
 use Inertia\Inertia;
 use Inertia\Response;
+use Laravel\Sanctum\PersonalAccessToken;
 
 class PasswordController extends Controller
 {
@@ -30,18 +31,22 @@ class PasswordController extends Controller
      */
     public function update(Request $request): RedirectResponse
     {
+        $user = $request->user();
+
+        // účet len cez Apple heslo nemá — nastaví si ho bez starého
         $validated = $request->validate([
-            'current_password' => ['required', 'current_password'],
+            'current_password' => $user->password !== null ? ['required', 'current_password'] : ['nullable'],
             'password' => ['required', Password::defaults(), 'confirmed'],
         ]);
 
-        $user = $request->user();
         $user->update([
             'password' => Hash::make($validated['password']),
         ]);
 
-        // zmena hesla odhlási ostatné zariadenia — appku (tokeny, push) aj iné web session
-        $user->tokens()->delete();
+        // zmena hesla odhlási ostatné zariadenia — appku (tokeny, push) aj iné web session;
+        // token, z ktorého sa heslo mení v appke, ostáva (appka si push zaregistruje znova)
+        $current = $user->currentAccessToken();
+        $user->tokens()->when($current instanceof PersonalAccessToken, fn ($q) => $q->where('id', '!=', $current->id))->delete();
         DB::table('push_tokens')->where('user_id', $user->id)->delete();
         DB::table('sessions')->where('user_id', $user->id)->where('id', '!=', $request->session()->getId())->delete();
 

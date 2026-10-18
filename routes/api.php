@@ -6,7 +6,9 @@ use App\Http\Controllers\Api\ForgotPasswordController;
 use App\Http\Controllers\Api\PushTokenController;
 use App\Http\Controllers\Api\RegisterController;
 use App\Http\Controllers\Api\TokenController;
+use App\Http\Controllers\Settings\PasswordController;
 use App\Http\Controllers\Settings\PreferenceController;
+use App\Http\Controllers\Settings\ProfileController;
 use App\Http\Middleware\ArraySession;
 use App\Http\Middleware\InertiaAsApi;
 use App\Http\Middleware\ProcessDuePayments;
@@ -50,6 +52,10 @@ Route::prefix('v1')->name('api.')->middleware([ArraySession::class, StartSession
         // push notifikácie (týždenné zhrnutie) — registrácia zariadenia
         Route::post('push-token', [PushTokenController::class, 'store'])->name('push-token.store');
         Route::delete('push-token', [PushTokenController::class, 'destroy'])->name('push-token.destroy');
+
+        // profil a heslo (na webe v routes/settings.php)
+        Route::patch('settings/profile', [ProfileController::class, 'update'])->name('profile.update');
+        Route::put('settings/password', [PasswordController::class, 'update'])->name('password.update');
 
         Route::get('settings/preferences', [PreferenceController::class, 'edit'])->name('preferences.edit');
         Route::put('settings/preferences', [PreferenceController::class, 'update'])->name('preferences.update');
