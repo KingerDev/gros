@@ -16,6 +16,12 @@ use Inertia\Response;
 
 class InvestmentController extends Controller
 {
+    /** Najviac pozícií na používateľa — každá znamená požiadavku na cenu. */
+    public const MAX_INVESTMENTS = 200;
+
+    /** Symbol pre Yahoo / CoinGecko (napr. VWCE.DE, BTC-EUR, ^GSPC, bitcoin). */
+    public const SYMBOL = '/^[A-Za-z0-9.\-=^_]{1,40}$/';
+
     public function index(Request $request, PriceService $prices): Response
     {
         $user = $request->user();
@@ -86,7 +92,7 @@ class InvestmentController extends Controller
             'name' => ['required', 'string', 'max:120'],
             'kind' => ['required', Rule::in(['etf', 'stock', 'crypto'])],
             'quote_source' => ['required', Rule::in(['manual', 'yahoo', 'coingecko'])],
-            'quote_symbol' => ['nullable', 'required_unless:quote_source,manual', 'string', 'max:40'],
+            'quote_symbol' => ['nullable', 'required_unless:quote_source,manual', 'string', 'max:40', 'regex:'.self::SYMBOL],
             'current_price' => ['nullable', 'numeric', 'min:0'],
             // voliteľný prvý nákup
             'units' => ['nullable', 'numeric', 'min:0'],
@@ -95,6 +101,9 @@ class InvestmentController extends Controller
         ]);
 
         $count = $request->user()->investments()->count();
+        if ($count >= self::MAX_INVESTMENTS) {
+            throw \Illuminate\Validation\ValidationException::withMessages(['ticker' => __('gros.investments.limit', ['max' => self::MAX_INVESTMENTS])]);
+        }
         $palette = config('gros.palette');
 
         $inv = $request->user()->investments()->create([
@@ -138,7 +147,7 @@ class InvestmentController extends Controller
             'name' => ['required', 'string', 'max:120'],
             'kind' => ['required', Rule::in(['etf', 'stock', 'crypto'])],
             'quote_source' => ['required', Rule::in(['manual', 'yahoo', 'coingecko'])],
-            'quote_symbol' => ['nullable', 'required_unless:quote_source,manual', 'string', 'max:40'],
+            'quote_symbol' => ['nullable', 'required_unless:quote_source,manual', 'string', 'max:40', 'regex:'.self::SYMBOL],
             'current_price' => ['nullable', 'numeric', 'min:0'],
         ]);
         $data['ticker'] = strtoupper($data['ticker']);
@@ -253,6 +262,13 @@ class InvestmentController extends Controller
     /** Manuálne stiahnutie aktuálnych cien. */
     public function refresh(Request $request, PriceService $prices): RedirectResponse
     {
+        // každá pozícia = jedna požiadavka na Yahoo/CoinGecko — častejšie to nemá zmysel a zaťažuje server
+        $key = 'prices-refresh:'.$request->user()->id;
+        if (\Illuminate\Support\Facades\RateLimiter::tooManyAttempts($key, 3)) {
+            return back()->with('error', __('gros.investments.refresh_wait'));
+        }
+        \Illuminate\Support\Facades\RateLimiter::hit($key, 60);
+
         $r = $prices->updateForUser($request->user());
 
         if ($r['updated'] > 0 && $r['failed'] === 0) {

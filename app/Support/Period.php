@@ -25,19 +25,56 @@ class Period
      */
     public static function fromRequest(Request $request): self
     {
+        $default = ['period' => 'month', 'ref' => null, 'from' => null, 'to' => null];
+
         if ($request->filled('period')) {
-            $data = [
+            $data = self::clean([
                 'period' => $request->query('period'),
                 'ref' => $request->query('ref'),
                 'from' => $request->query('from'),
                 'to' => $request->query('to'),
-            ];
-            $request->session()->put('gros_period', $data);
-        } else {
-            $data = $request->session()->get('gros_period', ['period' => 'month', 'ref' => null, 'from' => null, 'to' => null]);
+            ]);
+            // neplatné parametre sa ignorujú — do session sa nedostanú (inak by stránky padali, kým sa nezmenia)
+            if ($data !== null) {
+                $request->session()->put('gros_period', $data);
+            }
         }
 
-        return self::resolve($data['period'] ?? 'month', $data['ref'] ?? null, $data['from'] ?? null, $data['to'] ?? null);
+        $data ??= self::clean($request->session()->get('gros_period', $default)) ?? $default;
+
+        return self::resolve($data['period'], $data['ref'], $data['from'], $data['to']);
+    }
+
+    /**
+     * Overí parametre obdobia; null, keď sú neplatné.
+     *
+     * @return array{period: string, ref: ?string, from: ?string, to: ?string}|null
+     */
+    protected static function clean(mixed $data): ?array
+    {
+        if (! is_array($data)) {
+            return null;
+        }
+
+        $period = $data['period'] ?? 'month';
+        $ref = $data['ref'] ?? null;
+        $from = $data['from'] ?? null;
+        $to = $data['to'] ?? null;
+
+        if (! in_array($period, ['all', '30d', 'month', 'year', 'custom'], true)) {
+            return null;
+        }
+        $ref = $ref === '' ? null : $ref;
+        if ($ref !== null && ! (is_string($ref) && preg_match('/^\d{4}(-(0[1-9]|1[0-2]))?$/', $ref))) {
+            return null;
+        }
+        foreach ([$from, $to] as $date) {
+            if ($date !== null && $date !== '' && ! (is_string($date) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) && strtotime($date) !== false)) {
+                return null;
+            }
+        }
+
+        return ['period' => $period, 'ref' => $ref, 'from' => $from ?: null, 'to' => $to ?: null];
     }
 
     protected static function resolve(string $key, ?string $ref, ?string $from, ?string $to): self

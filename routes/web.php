@@ -13,7 +13,7 @@ Route::get('/', function () {
 Route::view('privacy', 'legal.privacy')->name('privacy');
 Route::view('support', 'legal.support')->name('support');
 
-Route::middleware(['auth', 'verified'])->group(function () {
+Route::middleware(['auth', 'verified', 'throttle:gros'])->group(function () {
     require __DIR__.'/gros.php';
 });
 

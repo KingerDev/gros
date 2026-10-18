@@ -28,8 +28,9 @@ class RegisterController extends Controller
             'name' => $data['name'],
             'email' => $data['email'],
             'password' => Hash::make($data['password']),
-            'locale' => app()->getLocale(), // z Accept-Language (SetApiLocale)
         ]);
+        // jazyk z Accept-Language (SetApiLocale)
+        $user->forceFill(['locale' => app()->getLocale()])->save();
 
         DefaultCategories::seed($user);
 

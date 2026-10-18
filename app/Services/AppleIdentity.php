@@ -64,8 +64,8 @@ class AppleIdentity
             throw new UnexpectedValueException('Missing subject.');
         }
 
-        // e-mail berieme len overený (Apple ho overuje vždy, ale istota)
-        $email = in_array($claims['email_verified'] ?? true, [false, 'false'], true) ? null : ($claims['email'] ?? null);
+        // e-mail berieme len výslovne overený (Apple ho posiela vždy spolu s email_verified)
+        $email = in_array($claims['email_verified'] ?? false, [true, 'true'], true) ? ($claims['email'] ?? null) : null;
 
         return [
             'sub' => $claims['sub'],

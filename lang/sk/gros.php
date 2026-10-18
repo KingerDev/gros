@@ -40,7 +40,13 @@ return [
         'reset_link' => 'Ak k tomuto e-mailu existuje účet, poslali sme naň odkaz na obnovenie hesla.',
         'apple_invalid' => 'Prihlásenie cez Apple sa nepodarilo overiť. Skús to znova.',
         'apple_no_email' => 'Apple neposlal e-mail. V nastaveniach Apple ID odober Groš a prihlás sa znova.',
+        'apple_email_taken' => 'Účet s týmto e-mailom už existuje. Prihlás sa e-mailom a heslom.',
+        'apple_confirm' => 'Zmazanie potvrď prihlásením cez Apple.',
         'wrong_password' => 'Nesprávne heslo.',
         'default_name' => 'Používateľ Groša',
+    ],
+    'investments' => [
+        'limit' => 'Môžeš mať najviac :max investícií.',
+        'refresh_wait' => 'Ceny sa práve aktualizovali — skús to o minútu.',
     ],
 ];

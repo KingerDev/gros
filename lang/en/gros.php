@@ -40,7 +40,13 @@ return [
         'reset_link' => 'If an account with this email exists, we have sent it a link to reset the password.',
         'apple_invalid' => 'We could not verify your Apple sign-in. Please try again.',
         'apple_no_email' => 'Apple did not share an email. Remove Groš in your Apple ID settings and sign in again.',
+        'apple_email_taken' => 'An account with this email already exists. Sign in with your email and password.',
+        'apple_confirm' => 'Confirm the deletion with Sign in with Apple.',
         'wrong_password' => 'The password is incorrect.',
         'default_name' => 'Groš user',
+    ],
+    'investments' => [
+        'limit' => 'You can have at most :max investments.',
+        'refresh_wait' => 'Prices were just updated — try again in a minute.',
     ],
 ];

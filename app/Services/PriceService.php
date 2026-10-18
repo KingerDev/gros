@@ -6,6 +6,7 @@ use App\Models\Investment;
 use App\Models\User;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 
 /**
@@ -26,12 +27,22 @@ class PriceService
      */
     public function updateForUser(User $user): array
     {
-        $investments = $user->investments()
-            ->whereIn('quote_source', ['yahoo', 'coingecko'])
-            ->whereNotNull('quote_symbol')
-            ->get();
+        // súbežné obnovenie toho istého používateľa (viac záložiek, opakované ťuknutia) sa nespustí dvakrát
+        $lock = Cache::lock('prices-user:'.$user->id, 120);
+        if (! $lock->get()) {
+            return ['updated' => 0, 'failed' => 0, 'errors' => []];
+        }
 
-        return $this->updateInvestments($investments);
+        try {
+            $investments = $user->investments()
+                ->whereIn('quote_source', ['yahoo', 'coingecko'])
+                ->whereNotNull('quote_symbol')
+                ->get();
+
+            return $this->updateInvestments($investments);
+        } finally {
+            $lock->release();
+        }
     }
 
     /**

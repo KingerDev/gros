@@ -130,11 +130,12 @@ class AccountDeletionTest extends TestCase
         $this->fillData($user);
 
         $apple = Mockery::mock(AppleIdentity::class);
+        $apple->shouldReceive('verify')->andReturn(['sub' => 'apple-1', 'email' => null]);
         $apple->shouldReceive('revoke')->once()->with('r-token');
         $this->app->instance(AppleIdentity::class, $apple);
 
         $this->withToken($user->createToken('t')->plainTextToken)
-            ->deleteJson('/api/v1/account')
+            ->deleteJson('/api/v1/account', ['identity_token' => 'jwt'])
             ->assertOk()
             ->assertExactJson(['ok' => true]);
 
@@ -146,12 +147,43 @@ class AccountDeletionTest extends TestCase
         config(['services.apple.team_id' => 'T', 'services.apple.key_id' => 'K', 'services.apple.private_key' => 'not-a-key']);
         $user = User::factory()->create(['password' => null]);
         $user->forceFill(['apple_id' => 'apple-1', 'apple_refresh_token' => 'r-token'])->save();
+        $this->partialMock(AppleIdentity::class, fn ($m) => $m->shouldReceive('verify')->andReturn(['sub' => 'apple-1', 'email' => null]));
 
         $this->withToken($user->createToken('t')->plainTextToken)
-            ->deleteJson('/api/v1/account')
+            ->deleteJson('/api/v1/account', ['identity_token' => 'jwt'])
             ->assertOk();
 
         $this->assertModelMissing($user);
+    }
+
+    public function test_apple_only_user_must_confirm_with_apple(): void
+    {
+        $user = User::factory()->create(['password' => null]);
+        $user->forceFill(['apple_id' => 'apple-1'])->save();
+        $token = $user->createToken('t')->plainTextToken;
+
+        // bez tokenu
+        $this->withToken($token)->deleteJson('/api/v1/account')->assertStatus(422)->assertJsonValidationErrors('identity_token');
+
+        // Apple token iného Apple ID
+        $apple = Mockery::mock(AppleIdentity::class);
+        $apple->shouldReceive('verify')->andReturn(['sub' => 'someone-else', 'email' => null]);
+        $this->app->instance(AppleIdentity::class, $apple);
+        $this->withToken($token)->deleteJson('/api/v1/account', ['identity_token' => 'jwt'])->assertStatus(422)->assertJsonValidationErrors('identity_token');
+
+        $this->assertModelExists($user);
+    }
+
+    public function test_web_deletion_removes_all_data(): void
+    {
+        $user = User::factory()->create(['password' => bcrypt('secret-pass')]);
+        $this->fillData($user);
+
+        $this->actingAs($user)
+            ->delete('/settings/profile', ['password' => 'secret-pass'])
+            ->assertRedirect('/');
+
+        $this->assertSame([], $this->remainingRows($user->id, $user->email));
     }
 
     public function test_needs_a_token(): void

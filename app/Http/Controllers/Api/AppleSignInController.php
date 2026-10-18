@@ -19,7 +19,9 @@ use Throwable;
  * Sign in with Apple. Appka pošle identity token z iOS, server ho overí
  * u Apple a nájde (alebo založí) používateľa:
  *  1. podľa Apple ID (sub),
- *  2. podľa e-mailu z tokenu — existujúci účet sa prepojí s Apple ID,
+ *  2. podľa e-mailu z tokenu — existujúci účet sa prepojí s Apple ID, ale len
+ *     keď má overený e-mail (inak by si niekto mohol vopred zaregistrovať cudzí
+ *     e-mail a po prihlásení obete cez Apple zdieľať jej účet),
  *  3. inak nový účet bez hesla.
  */
 class AppleSignInController extends Controller
@@ -78,6 +80,9 @@ class AppleSignInController extends Controller
         }
 
         if ($user = User::where('email', $identity['email'])->first()) {
+            if ($user->email_verified_at === null) {
+                throw ValidationException::withMessages(['identity_token' => __('gros.auth.apple_email_taken')]);
+            }
             $user->forceFill(['apple_id' => $identity['sub']])->save();
 
             return [$user, false];
@@ -90,9 +95,9 @@ class AppleSignInController extends Controller
             'name' => Str::limit($name, 255, ''),
             'email' => $identity['email'],
             'password' => null, // len cez Apple — has_password = false
-            'locale' => app()->getLocale(),
         ]);
-        $user->forceFill(['apple_id' => $identity['sub'], 'email_verified_at' => now()])->save();
+        // e-mail overil Apple
+        $user->forceFill(['apple_id' => $identity['sub'], 'email_verified_at' => now(), 'locale' => app()->getLocale()])->save();
 
         return [$user, true];
     }

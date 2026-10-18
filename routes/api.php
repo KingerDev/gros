@@ -44,7 +44,7 @@ Route::prefix('v1')->name('api.')->middleware([ArraySession::class, StartSession
     // zmazanie účtu — čisté JSON, bez Inertia vrstvy a spracovania platieb
     Route::delete('account', AccountDeletionController::class)->middleware(['auth:sanctum', 'throttle:5,1'])->name('account.destroy');
 
-    Route::middleware(['auth:sanctum', ProcessDuePayments::class, InertiaAsApi::class])->group(function () {
+    Route::middleware(['auth:sanctum', 'throttle:gros', ProcessDuePayments::class, InertiaAsApi::class])->group(function () {
         Route::post('logout', [TokenController::class, 'destroy'])->name('logout');
 
         // push notifikácie (týždenné zhrnutie) — registrácia zariadenia

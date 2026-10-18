@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Settings;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Settings\ProfileUpdateRequest;
+use App\Services\AccountDeletion;
 use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -43,7 +44,7 @@ class ProfileController extends Controller
     /**
      * Delete the user's profile.
      */
-    public function destroy(Request $request): RedirectResponse
+    public function destroy(Request $request, AccountDeletion $deletion): RedirectResponse
     {
         $request->validate([
             'password' => ['required', 'current_password'],
@@ -53,7 +54,8 @@ class ProfileController extends Controller
 
         Auth::logout();
 
-        $user->delete();
+        // rovnako ako z appky: všetky dáta, tokeny, session a Apple revoke
+        $deletion->delete($user);
 
         $request->session()->invalidate();
         $request->session()->regenerateToken();
