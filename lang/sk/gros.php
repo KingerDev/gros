@@ -49,4 +49,14 @@ return [
         'limit' => 'Môžeš mať najviac :max investícií.',
         'refresh_wait' => 'Ceny sa práve aktualizovali — skús to o minútu.',
     ],
+    'insights' => [
+        'event' => ':label · na „:name" išlo :amount — ráta sa ako jednorazový výdavok.',
+        'without_events' => ' (bez udalostí)',
+        'more' => ':label · minul si:scope o :pct % viac než býva priemer.',
+        'less' => ':label · minul si:scope o :pct % menej než býva priemer. 👏',
+        'top_category' => ':label · najviac išlo na „:name" — :amount.',
+        'biggest' => ':label · najväčší výdavok: „:name" :amount.',
+        'expense' => 'výdavok',
+        'rate' => ':label · miera úspor :rate %.',
+    ],
 ];

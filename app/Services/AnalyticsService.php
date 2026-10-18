@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Category;
 use App\Models\Transaction;
 use App\Models\User;
+use App\Support\DefaultCategories;
 use App\Support\Period;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
@@ -356,7 +357,7 @@ class AnalyticsService
         foreach ($events as $rows) {
             $out[] = [
                 'tone' => 'info',
-                'text' => "{$label} · na „{$rows->first()->event->name}\" išlo ".$this->eur($rows->sum('net_amount')).' — ráta sa ako jednorazový výdavok.',
+                'text' => __('gros.insights.event', ['label' => $label, 'name' => $rows->first()->event->name, 'amount' => $this->eur($rows->sum('net_amount'))]),
             ];
         }
 
@@ -371,13 +372,13 @@ class AnalyticsService
 
         if ($avg > 0 && $routine > 0) {
             $diff = ($routine - $avg) / $avg * 100;
-            $scope = $eventTotal > 0 ? ' (bez udalostí)' : '';
+            $scope = $eventTotal > 0 ? __('gros.insights.without_events') : '';
             if (abs($diff) >= 10) {
                 $out[] = [
                     'tone' => $diff > 0 ? 'warn' : 'good',
                     'text' => $diff > 0
-                        ? "{$label} · minul si{$scope} o ".round($diff).' % viac než býva priemer.'
-                        : "{$label} · minul si{$scope} o ".round(abs($diff)).' % menej než býva priemer. 👏',
+                        ? __('gros.insights.more', ['label' => $label, 'scope' => $scope, 'pct' => round($diff)])
+                        : __('gros.insights.less', ['label' => $label, 'scope' => $scope, 'pct' => round(abs($diff))]),
                 ];
             }
         }
@@ -386,21 +387,21 @@ class AnalyticsService
         $catRow = $period->apply($user->transactions()->analyzed()->where('type', 'expense')->whereNotNull('category_id'))
             ->selectRaw('category_id, '.Transaction::netSum('a'))->groupBy('category_id')->orderByDesc('a')->first();
         if ($catRow && ($cat = Category::find($catRow->category_id))) {
-            $out[] = ['tone' => 'info', 'text' => "{$label} · najviac išlo na „{$cat->name}\" — ".$this->eur($catRow->a).'.'];
+            $out[] = ['tone' => 'info', 'text' => __('gros.insights.top_category', ['label' => $label, 'name' => DefaultCategories::displayName($cat->name, app()->getLocale()), 'amount' => $this->eur($catRow->a)])];
         }
 
         // Najväčší jednotlivý výdavok obdobia
         $big = $period->apply($user->transactions()->analyzed()->where('type', 'expense'))
             ->orderByDesc(Transaction::netExpression())->first();
         if ($big) {
-            $title = $big->note ?: ($big->category?->name ?? 'výdavok');
-            $out[] = ['tone' => 'info', 'text' => "{$label} · najväčší výdavok: „{$title}\" ".$this->eur($big->net_amount).'.'];
+            $title = $big->note ?: ($big->category ? DefaultCategories::displayName($big->category->name, app()->getLocale()) : __('gros.insights.expense'));
+            $out[] = ['tone' => 'info', 'text' => __('gros.insights.biggest', ['label' => $label, 'name' => $title, 'amount' => $this->eur($big->net_amount)])];
         }
 
         if ($cur['income'] > 0) {
             $out[] = [
                 'tone' => $cur['rate'] >= 0 ? 'good' : 'warn',
-                'text' => "{$label} · miera úspor {$cur['rate']} %.",
+                'text' => __('gros.insights.rate', ['label' => $label, 'rate' => $cur['rate']]),
             ];
         }
 
@@ -414,7 +415,9 @@ class AnalyticsService
 
     protected function eur(float $n): string
     {
-        return number_format($n, 2, ',', ' ').' €';
+        return app()->getLocale() === 'sk'
+            ? number_format($n, 2, ',', ' ').' €'
+            : '€'.number_format($n, 2, '.', ',');
     }
 
     /** Najstaršia a najnovšia transakcia (na medze prepínača období). */

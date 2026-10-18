@@ -150,6 +150,18 @@ class AnalyticsPeriodTest extends TestCase
         $this->assertTrue($texts->every(fn ($t) => str_starts_with($t, 'Máj 2026 ·')));
     }
 
+    public function test_insights_follow_the_locale(): void
+    {
+        $this->txn(['amount' => 90, 'date' => CarbonImmutable::parse('2026-05-10')->toDateString()]);
+        app()->setLocale('en');
+
+        $texts = collect($this->analytics->insights($this->user, $this->month('2026-05')))->pluck('text');
+
+        $this->assertNotEmpty($texts);
+        $this->assertTrue($texts->every(fn ($t) => str_starts_with($t, 'May 2026 ·')), $texts->implode(' | '));
+        $this->assertTrue($texts->contains(fn ($t) => str_contains($t, '€90.00')), $texts->implode(' | '));
+    }
+
     public function test_insights_are_empty_for_a_period_without_transactions(): void
     {
         $this->txn(['amount' => 90, 'date' => CarbonImmutable::parse('2026-05-10')->toDateString()]);

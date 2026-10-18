@@ -49,4 +49,14 @@ return [
         'limit' => 'You can have at most :max investments.',
         'refresh_wait' => 'Prices were just updated — try again in a minute.',
     ],
+    'insights' => [
+        'event' => ':label · “:name” cost :amount — counted as a one-off expense.',
+        'without_events' => ' (excluding events)',
+        'more' => ':label · you spent:scope :pct% more than usual.',
+        'less' => ':label · you spent:scope :pct% less than usual. 👏',
+        'top_category' => ':label · most went to “:name” — :amount.',
+        'biggest' => ':label · biggest expense: “:name” :amount.',
+        'expense' => 'expense',
+        'rate' => ':label · savings rate :rate%.',
+    ],
 ];
