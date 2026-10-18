@@ -3,6 +3,7 @@
 namespace App\Http\Middleware;
 
 use App\Models\User;
+use App\Support\DefaultCategories;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
 
@@ -101,6 +102,8 @@ class HandleInertiaRequests extends Middleware
             ->orderBy('position')
             ->orderBy('name')
             ->get(['id', 'parent_id', 'name', 'type', 'color', 'icon'])
+            // appka v angličtine dostane aj slovensky založené kategórie po anglicky (a naopak)
+            ->map(fn ($c) => ['name' => DefaultCategories::displayName($c->name, app()->getLocale())] + $c->toArray())
             ->toArray();
     }
 

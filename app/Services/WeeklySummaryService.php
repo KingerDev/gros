@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Transaction;
 use App\Models\User;
+use App\Support\DefaultCategories;
 use App\Support\Period;
 use Carbon\CarbonImmutable;
 
@@ -51,7 +52,7 @@ class WeeklySummaryService
             'expense' => $this->analytics->summary($user, $week)['expense'],
             'previous' => $this->analytics->summary($user, $prev)['expense'],
             'top' => $top && $top->net_amount > 0 ? [
-                'name' => trim((string) $top->note) ?: ($top->category?->name ?? __('gros.weekly.uncategorized')),
+                'name' => trim((string) $top->note) ?: ($top->category ? DefaultCategories::displayName($top->category->name, app()->getLocale()) : __('gros.weekly.uncategorized')),
                 'amount' => $top->net_amount,
             ] : null,
         ];

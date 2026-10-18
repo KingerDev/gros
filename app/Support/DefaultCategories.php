@@ -48,4 +48,24 @@ class DefaultCategories
             }
         }
     }
+
+    /**
+     * Názov kategórie v danom jazyku. Prekladajú sa len východiskové kategórie
+     * s pôvodným názvom (slovensko ↔ anglicky) — vlastné a premenované ostávajú,
+     * ako ich používateľ napísal. V databáze sa nič nemení.
+     */
+    public static function displayName(string $name, string $locale): string
+    {
+        static $toEn = null;
+        $toEn ??= (array) trans('categories', [], 'en');
+
+        if ($locale === 'en') {
+            return $toEn[$name] ?? $name;
+        }
+
+        static $toSk = null;
+        $toSk ??= array_flip($toEn);
+
+        return $toSk[$name] ?? $name;
+    }
 }

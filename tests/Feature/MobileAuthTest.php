@@ -259,6 +259,27 @@ class MobileAuthTest extends TestCase
         $this->assertSame('sk', $user->fresh()->locale);
     }
 
+    public function test_default_categories_follow_the_device_language(): void
+    {
+        $user = User::factory()->create(); // locale sk — kategórie uložené po slovensky
+        DefaultCategories::seed($user);
+        $user->categories()->where('name', 'Drogéria')->update(['name' => 'Moja drogéria']);
+        $token = $user->createToken('test')->plainTextToken;
+
+        $names = fn (string $lang) => collect($this->withToken($token)->getJson('/api/v1/dashboard', ['Accept-Language' => $lang])->json('categories'))->pluck('name');
+
+        $en = $names('en');
+        $this->assertContains('Groceries', $en);
+        $this->assertNotContains('Potraviny', $en);
+        $this->assertContains('Moja drogéria', $en); // premenovaná ostáva
+
+        $this->assertContains('Potraviny', $names('sk'));
+        $this->assertSame('Potraviny', $user->categories()->where('name', 'Potraviny')->value('name')); // v DB nič nezmenené
+
+        // a naopak: anglicky založené kategórie v slovenskej appke
+        $this->assertSame('Potraviny', DefaultCategories::displayName('Groceries', 'sk'));
+    }
+
     public function test_api_strings_follow_the_device_language(): void
     {
         $user = User::factory()->create();
