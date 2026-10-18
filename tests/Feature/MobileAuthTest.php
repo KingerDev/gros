@@ -276,6 +276,10 @@ class MobileAuthTest extends TestCase
         $this->assertContains('Potraviny', $names('sk'));
         $this->assertSame('Potraviny', $user->categories()->where('name', 'Potraviny')->value('name')); // v DB nič nezmenené
 
+        // aj v správe kategórií
+        $groups = $this->withToken($token)->getJson('/api/v1/categories', ['Accept-Language' => 'en'])->json('groups');
+        $this->assertContains('Groceries', collect($groups)->flatMap(fn ($g) => array_column($g['children'], 'name')));
+
         // a naopak: anglicky založené kategórie v slovenskej appke
         $this->assertSame('Potraviny', DefaultCategories::displayName('Groceries', 'sk'));
     }

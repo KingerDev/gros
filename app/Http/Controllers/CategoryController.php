@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Category;
+use App\Support\DefaultCategories;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -22,6 +23,15 @@ class CategoryController extends Controller
             ->orderBy('position')
             ->orderBy('name')
             ->get();
+
+        // východiskové kategórie v jazyku appky / webu (rovnako ako v zdieľaných dátach)
+        $locale = app()->getLocale();
+        foreach ($groups as $group) {
+            $group->name = DefaultCategories::displayName($group->name, $locale);
+            foreach ($group->children as $child) {
+                $child->name = DefaultCategories::displayName($child->name, $locale);
+            }
+        }
 
         // Počet transakcií na kategóriu (na varovanie pri mazaní)
         $counts = $user->transactions()
