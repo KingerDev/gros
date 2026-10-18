@@ -50,8 +50,8 @@ return [
     |
     */
 
-    // tokeny appky platia 90 dní, potom sa treba prihlásiť znova
-    'expiration' => env('SANCTUM_EXPIRATION', 60 * 24 * 90),
+    // prihlásenie v appke neexpiruje — zneplatní ho odhlásenie, reset alebo zmena hesla
+    'expiration' => null,
 
     /*
     |--------------------------------------------------------------------------

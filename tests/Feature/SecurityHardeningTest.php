@@ -108,11 +108,6 @@ class SecurityHardeningTest extends TestCase
         $this->assertSame(0, $user->tokens()->count());
     }
 
-    public function test_tokens_expire(): void
-    {
-        $this->assertNotNull(config('sanctum.expiration'));
-    }
-
     // ---- C5: investície ----
 
     public function test_investment_symbol_is_validated(): void
