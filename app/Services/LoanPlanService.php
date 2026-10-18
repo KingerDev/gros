@@ -71,7 +71,7 @@ class LoanPlanService
         if ($base === null) {
             return [
                 'ok' => false,
-                'reason' => 'Splátka nepokryje ani úrok — dlh pri nej rastie.',
+                'reason' => __('gros.server.loan_growing'),
                 'rate' => $rate,
             ];
         }

@@ -38,7 +38,7 @@ class PortfolioAnalyticsService
         $withLots = $investments->filter(fn ($i) => $i->lots->isNotEmpty());
 
         if ($withLots->isEmpty()) {
-            return ['ok' => false, 'reason' => 'Zatiaľ žiadne nákupy — analýza sa zobrazí po pridaní prvej transakcie.'];
+            return ['ok' => false, 'reason' => __('gros.server.portfolio_empty')];
         }
 
         $sig = md5($withLots->pluck('lots')->flatten()->map(fn ($l) => "{$l->id}:{$l->type}:{$l->units}:{$l->price}:{$l->date}")->implode('|')

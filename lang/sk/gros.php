@@ -59,4 +59,17 @@ return [
         'expense' => 'výdavok',
         'rate' => ':label · miera úspor :rate %.',
     ],
+    'server' => [
+        'source_vanguard' => 'Vanguard — núdzový fond: výdavkový náraz a výpadok príjmu',
+        'source_unemployment' => 'Dávka v nezamestnanosti od roku 2026 — 50 % DVZ prvé 3 mesiace, potom 40, 30 a 20 %',
+        'average_wage_source' => 'ŠÚ SR — priemerná nominálna mesačná mzda za rok 2025 (zverejnené 3. 3. 2026)',
+        'loan_growing' => 'Splátka nepokryje ani úrok — dlh pri nej rastie.',
+        'portfolio_empty' => 'Zatiaľ žiadne nákupy — analýza sa zobrazí po pridaní prvej transakcie.',
+        'report_month' => 'Mesiac v kocke',
+        'report_year' => 'Rok v kocke',
+        'report_30d' => 'Posledných 30 dní v kocke',
+        'report_custom' => 'Obdobie v kocke',
+        'before' => 'Vopred',
+        'after' => 'Potom',
+    ],
 ];

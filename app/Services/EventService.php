@@ -236,13 +236,13 @@ class EventService
 
         $out = [];
         if ($before > 0) {
-            $out[] = ['date' => null, 'label' => 'Vopred', 'amount' => round($before, 2)];
+            $out[] = ['date' => null, 'label' => __('gros.server.before'), 'amount' => round($before, 2)];
         }
         for ($d = $start; $d->lte($end); $d = $d->addDay()) {
             $out[] = ['date' => $d->toDateString(), 'label' => $d->format('j.n.'), 'amount' => round($sums[$d->toDateString()] ?? 0, 2)];
         }
         if ($after > 0) {
-            $out[] = ['date' => null, 'label' => 'Potom', 'amount' => round($after, 2)];
+            $out[] = ['date' => null, 'label' => __('gros.server.after'), 'amount' => round($after, 2)];
         }
 
         return $out;

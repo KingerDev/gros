@@ -59,4 +59,17 @@ return [
         'expense' => 'expense',
         'rate' => ':label · savings rate :rate%.',
     ],
+    'server' => [
+        'source_vanguard' => 'Vanguard — emergency fund: spending shocks and income loss',
+        'source_unemployment' => 'Slovak unemployment benefit from 2026 — 50 % of the daily base for the first 3 months, then 40, 30 and 20 %',
+        'average_wage_source' => 'Statistical Office of the Slovak Republic — average nominal monthly wage for 2025 (published 3 March 2026)',
+        'loan_growing' => 'The payment does not even cover the interest — the debt keeps growing.',
+        'portfolio_empty' => 'No purchases yet — the analysis appears once you add your first trade.',
+        'report_month' => 'Month at a glance',
+        'report_year' => 'Year at a glance',
+        'report_30d' => 'Last 30 days at a glance',
+        'report_custom' => 'Period at a glance',
+        'before' => 'Before',
+        'after' => 'After',
+    ],
 ];

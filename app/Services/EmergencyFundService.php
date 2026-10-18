@@ -379,11 +379,11 @@ class EmergencyFundService
     {
         return [
             [
-                'label' => 'Vanguard — núdzový fond: výdavkový náraz a výpadok príjmu',
+                'label' => __('gros.server.source_vanguard'),
                 'url' => 'https://investor.vanguard.com/investor-resources-education/emergency-fund',
             ],
             [
-                'label' => 'Dávka v nezamestnanosti od roku 2026 — 50 % DVZ prvé 3 mesiace, potom 40, 30 a 20 %',
+                'label' => __('gros.server.source_unemployment'),
                 'url' => 'https://www.podnikajte.sk/socialne-a-zdravotne-odvody/davka-v-nezamestnanosti-od-2026',
             ],
         ];

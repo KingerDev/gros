@@ -45,7 +45,7 @@ class RetirementController extends Controller
         return Inertia::render('gros/Retirement', [
             'plan' => $plan,
             'rule' => $rule,
-            'averageWage' => config('gros.average_wage'),
+            'averageWage' => ['source' => __('gros.server.average_wage_source')] + config('gros.average_wage'),
             'spending_basis' => $this->spendingBasis($profile, $housing),
             'profile' => [
                 'measured' => $profile['measured'],

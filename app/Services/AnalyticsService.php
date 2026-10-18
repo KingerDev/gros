@@ -242,11 +242,11 @@ class AnalyticsService
     protected function reportTarget(Period $period): array
     {
         return match ($period->key) {
-            'month' => ['Mesiac v kocke', $period->previous() ?? $this->lastClosedMonth()],
-            'year' => ['Rok v kocke', $period->previous() ?? $this->lastClosedMonth()],
-            '30d' => ['Posledných 30 dní v kocke', $period],
-            'custom' => ['Obdobie v kocke', $period],
-            default => ['Mesiac v kocke', $this->lastClosedMonth()],
+            'month' => [__('gros.server.report_month'), $period->previous() ?? $this->lastClosedMonth()],
+            'year' => [__('gros.server.report_year'), $period->previous() ?? $this->lastClosedMonth()],
+            '30d' => [__('gros.server.report_30d'), $period],
+            'custom' => [__('gros.server.report_custom'), $period],
+            default => [__('gros.server.report_month'), $this->lastClosedMonth()],
         };
     }
 
