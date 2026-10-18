@@ -35,4 +35,13 @@ return [
         ],
     ],
 
+    // Sign in with Apple (mobilná appka). Kľúč (p8) treba len na výmenu
+    // authorization_code za refresh token a jeho revoke pri zmazaní účtu.
+    'apple' => [
+        'client_id' => env('APPLE_CLIENT_ID', 'com.martinbalaz.gros'),
+        'team_id' => env('APPLE_TEAM_ID'),
+        'key_id' => env('APPLE_KEY_ID'),
+        'private_key' => env('APPLE_PRIVATE_KEY'),
+    ],
+
 ];

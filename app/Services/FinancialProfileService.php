@@ -101,7 +101,8 @@ class FinancialProfileService
     protected function housingTotal(User $user, array $months): float
     {
         $categories = $user->categories()->where('type', 'expense')->get(['id', 'name', 'parent_id']);
-        $groupIds = $categories->filter(fn ($c) => mb_strtolower($c->name) === 'bývanie')->pluck('id');
+        // „Housing" = tá istá skupina v anglicky naseedovaných kategóriách
+        $groupIds = $categories->filter(fn ($c) => in_array(mb_strtolower($c->name), ['bývanie', 'housing'], true))->pluck('id');
         $ids = $categories
             ->filter(fn ($c) => $groupIds->contains($c->id) || $groupIds->contains($c->parent_id))
             ->pluck('id')

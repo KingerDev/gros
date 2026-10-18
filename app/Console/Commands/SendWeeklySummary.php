@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Services\WeeklySummaryService;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\App;
 use Illuminate\Support\Facades\Http;
 
 /**
@@ -32,20 +33,27 @@ class SendWeeklySummary extends Command
         $today = CarbonImmutable::parse(CarbonImmutable::now('Europe/Bratislava')->toDateString());
 
         $messages = [];
+        $appLocale = App::getLocale();
 
         User::whereHas('pushTokens')->with('pushTokens')->each(function (User $user) use ($summary, $today, &$messages) {
+            // notifikácia v jazyku používateľa (appka ho posiela v Accept-Language)
+            App::setLocale($user->locale ?: 'sk');
+
+            $title = $summary->title();
             $body = $summary->body($user, $summary->forUser($user, $today));
 
             foreach ($user->pushTokens as $token) {
                 $messages[] = [
                     'to' => $token->token,
-                    'title' => WeeklySummaryService::TITLE,
+                    'title' => $title,
                     'body' => $body,
                     'sound' => 'default',
                     'data' => ['url' => '/'],
                 ];
             }
         });
+
+        App::setLocale($appLocale);
 
         if (! $messages) {
             $this->info('Žiadne zaregistrované zariadenia.');

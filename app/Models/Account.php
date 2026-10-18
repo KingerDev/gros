@@ -23,4 +23,16 @@ class Account extends Model
     {
         return $this->hasMany(Transaction::class);
     }
+
+    /** Preložený názov typu (lang/{sk,en}/gros.php → account_types); vlastný typ zostane, ako je. */
+    public static function typeLabel(?string $type): ?string
+    {
+        return __('gros.account_types')[$type] ?? $type;
+    }
+
+    /** Pridá type_label do JSON-u (appka zobrazuje typ v jazyku zariadenia). */
+    public function withTypeLabel(): static
+    {
+        return $this->setAttribute('type_label', self::typeLabel($this->type));
+    }
 }

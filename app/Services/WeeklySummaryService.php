@@ -11,10 +11,16 @@ use Carbon\CarbonImmutable;
  * Týždenné zhrnutie výdavkov pre push notifikáciu. Výdavky ráta rovnako ako
  * prehľad a Analýzy (AnalyticsService::summary) — bez vylúčených z analýz,
  * vrátení, prevodov a presunov do úspor/portfólia.
+ *
+ * Texty sú v aktuálnom jazyku (lang/{sk,en}/gros.php → weekly) — príkaz
+ * gros:weekly-summary ho nastaví podľa users.locale.
  */
 class WeeklySummaryService
 {
-    public const TITLE = 'Tvoj týždeň v Groši';
+    public function title(): string
+    {
+        return __('gros.weekly.title');
+    }
 
     public function __construct(
         protected AnalyticsService $analytics,
@@ -45,7 +51,7 @@ class WeeklySummaryService
             'expense' => $this->analytics->summary($user, $week)['expense'],
             'previous' => $this->analytics->summary($user, $prev)['expense'],
             'top' => $top && $top->net_amount > 0 ? [
-                'name' => trim((string) $top->note) ?: ($top->category?->name ?? 'Bez kategórie'),
+                'name' => trim((string) $top->note) ?: ($top->category?->name ?? __('gros.weekly.uncategorized')),
                 'amount' => $top->net_amount,
             ] : null,
         ];
@@ -55,37 +61,40 @@ class WeeklySummaryService
     public function body(User $user, array $summary): string
     {
         if ($user->privacy_mode) {
-            return 'Tvoje týždenné zhrnutie výdavkov je pripravené. Pozri sa, ako sa ti darilo.';
+            return __('gros.weekly.privacy');
         }
 
         $expense = round($summary['expense'], 2);
         if ($expense <= 0) {
-            return 'Tento týždeň si nemal žiadne výdavky.';
+            return __('gros.weekly.none');
         }
 
-        $text = 'Minul si '.$this->money($expense);
+        $text = __('gros.weekly.spent', ['amount' => $this->money($expense)]);
 
         $previous = round($summary['previous'], 2);
         if ($previous > 0) {
             $pct = (int) round(abs($expense - $previous) / $previous * 100);
             $text .= match (true) {
-                $pct === 0 => ' — rovnako ako minulý týždeň',
-                $expense > $previous => " — o {$pct} % viac ako minulý týždeň",
-                default => " — o {$pct} % menej ako minulý týždeň",
+                $pct === 0 => __('gros.weekly.same'),
+                $expense > $previous => __('gros.weekly.more', ['pct' => $pct]),
+                default => __('gros.weekly.less', ['pct' => $pct]),
             };
         }
 
         $text .= '.';
 
         if ($summary['top']) {
-            $text .= ' Najväčší výdavok: '.$summary['top']['name'].' '.$this->money($summary['top']['amount']).'.';
+            $text .= __('gros.weekly.top', ['name' => $summary['top']['name'], 'amount' => $this->money($summary['top']['amount'])]);
         }
 
         return $text;
     }
 
+    /** 1 312,40 € po slovensky, €1,312.40 po anglicky. */
     protected function money(float $n): string
     {
-        return number_format($n, 2, ',', ' ').' €';
+        return app()->getLocale() === 'sk'
+            ? number_format($n, 2, ',', ' ').' €'
+            : '€'.number_format($n, 2, '.', ',');
     }
 }

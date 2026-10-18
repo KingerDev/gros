@@ -13,11 +13,6 @@ class SpendingPlanService
 {
     public function __construct(protected ExpenseClassifier $classifier) {}
 
-    private const MONTHS_SK = [
-        1 => 'Január', 2 => 'Február', 3 => 'Marec', 4 => 'Apríl', 5 => 'Máj', 6 => 'Jún',
-        7 => 'Júl', 8 => 'August', 9 => 'September', 10 => 'Október', 11 => 'November', 12 => 'December',
-    ];
-
     /** @return array<string, mixed> */
     public function current(User $user): array
     {
@@ -76,7 +71,7 @@ class SpendingPlanService
             'daysInMonth' => $daysInMonth,
             'dayOfMonth' => $dayOfMonth,
             'daysLeft' => $daysLeft,
-            'monthLabel' => self::MONTHS_SK[(int) $today->month].' '.$today->year,
+            'monthLabel' => __('gros.months')[(int) $today->month].' '.$today->year,
             'estimateSuggestion' => round($this->estimatedMonthlyIncome($user), 2),
         ];
     }

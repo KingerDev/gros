@@ -50,7 +50,11 @@ class HandleInertiaRequests extends Middleware
             // POZOR: nesmie sa volať 'ref' — Inertia spreadne page-propy na vnode
             // stránky a Vue by 'ref' vyložil ako template ref (crash v prode).
             'catalog' => [
-                'kindLabels' => config('gros.kind_labels'),
+                'kindLabels' => __('gros.kind_labels'),
+                // hodnoty accounts.type + preložený názov (formulár účtu v appke)
+                'accountTypes' => collect(__('gros.account_types'))
+                    ->map(fn ($label, $value) => ['value' => $value, 'label' => $label])
+                    ->values(),
                 'palette' => config('gros.palette'),
                 'accentOptions' => config('gros.accent_options'),
             ],

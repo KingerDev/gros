@@ -1,11 +1,16 @@
 <?php
 
+use App\Http\Controllers\Api\AccountDeletionController;
+use App\Http\Controllers\Api\AppleSignInController;
+use App\Http\Controllers\Api\ForgotPasswordController;
 use App\Http\Controllers\Api\PushTokenController;
+use App\Http\Controllers\Api\RegisterController;
 use App\Http\Controllers\Api\TokenController;
 use App\Http\Controllers\Settings\PreferenceController;
 use App\Http\Middleware\ArraySession;
 use App\Http\Middleware\InertiaAsApi;
 use App\Http\Middleware\ProcessDuePayments;
+use App\Http\Middleware\SetApiLocale;
 use Illuminate\Http\Request;
 use Illuminate\Session\Middleware\StartSession;
 use Illuminate\Support\Facades\Cache;
@@ -30,8 +35,14 @@ Route::get('/rings', function (Request $r) {
 | API pre mobilnú appku. Beží nad tými istými controllermi ako web
 | (routes/gros.php); InertiaAsApi z ich odpovedí robí JSON.
 */
-Route::prefix('v1')->name('api.')->middleware([ArraySession::class, StartSession::class])->group(function () {
+Route::prefix('v1')->name('api.')->middleware([ArraySession::class, StartSession::class, SetApiLocale::class])->group(function () {
     Route::post('login', [TokenController::class, 'store'])->middleware('throttle:10,1')->name('login');
+    Route::post('register', RegisterController::class)->middleware('throttle:10,1')->name('register');
+    Route::post('auth/apple', AppleSignInController::class)->middleware('throttle:10,1')->name('auth.apple');
+    Route::post('forgot-password', ForgotPasswordController::class)->middleware('throttle:5,1')->name('forgot-password');
+
+    // zmazanie účtu — čisté JSON, bez Inertia vrstvy a spracovania platieb
+    Route::delete('account', AccountDeletionController::class)->middleware(['auth:sanctum', 'throttle:5,1'])->name('account.destroy');
 
     Route::middleware(['auth:sanctum', ProcessDuePayments::class, InertiaAsApi::class])->group(function () {
         Route::post('logout', [TokenController::class, 'destroy'])->name('logout');

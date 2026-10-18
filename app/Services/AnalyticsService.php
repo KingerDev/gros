@@ -409,7 +409,7 @@ class AnalyticsService
 
     protected function shortMonth(CarbonImmutable $d): string
     {
-        return ['', 'Jan', 'Feb', 'Mar', 'Apr', 'Máj', 'Jún', 'Júl', 'Aug', 'Sep', 'Okt', 'Nov', 'Dec'][$d->month].' '.substr((string) $d->year, 2);
+        return __('gros.months_short')[$d->month].' '.substr((string) $d->year, 2);
     }
 
     protected function eur(float $n): string

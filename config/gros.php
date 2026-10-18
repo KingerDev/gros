@@ -13,6 +13,7 @@
 return [
 
     // Druhy investícií
+    // názvy sú preložené v lang/{sk,en}/gros.php (kind_labels) — tu len pre úplnosť
     'kind_labels' => ['etf' => 'ETF', 'stock' => 'Akcia', 'crypto' => 'Krypto'],
 
     // Paleta na auto-priradenie farieb (účty, investície, úvery) a na výber pri kategóriách

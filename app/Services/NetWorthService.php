@@ -152,8 +152,7 @@ class NetWorthService
     protected function label(string $ym): string
     {
         [$y, $m] = explode('-', $ym);
-        $short = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'Máj', 'Jún', 'Júl', 'Aug', 'Sep', 'Okt', 'Nov', 'Dec'];
 
-        return $short[(int) $m].' '.substr($y, 2);
+        return __('gros.months_short')[(int) $m].' '.substr($y, 2);
     }
 }

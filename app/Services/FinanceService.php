@@ -248,6 +248,6 @@ class FinanceService
 
     protected function monthLabel(int $month): string
     {
-        return ['', 'Jan', 'Feb', 'Mar', 'Apr', 'Máj', 'Jún', 'Júl', 'Aug', 'Sep', 'Okt', 'Nov', 'Dec'][$month];
+        return __('gros.months_short')[$month];
     }
 }

@@ -9,6 +9,10 @@ Route::get('/', function () {
         : Inertia::render('Welcome');
 })->name('home');
 
+// verejné stránky pre App Store (bez prihlásenia)
+Route::view('privacy', 'legal.privacy')->name('privacy');
+Route::view('support', 'legal.support')->name('support');
+
 Route::middleware(['auth', 'verified'])->group(function () {
     require __DIR__.'/gros.php';
 });

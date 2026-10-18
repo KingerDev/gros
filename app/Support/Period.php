@@ -45,8 +45,8 @@ class Period
         $today = CarbonImmutable::today();
 
         return match ($key) {
-            'all' => new self('all', null, null, 'Celé obdobie'),
-            '30d' => new self('30d', $today->subDays(30), $today, 'Posledných 30 dní'),
+            'all' => new self('all', null, null, __('gros.period.all')),
+            '30d' => new self('30d', $today->subDays(30), $today, __('gros.period.30d')),
             'year' => (function () use ($ref, $today) {
                 $y = (int) ($ref ?: $today->year);
                 $d = CarbonImmutable::create($y, 1, 1);
@@ -109,9 +109,8 @@ class Period
 
     public static function monthLabel(CarbonImmutable $d): string
     {
-        $m = ['', 'Január', 'Február', 'Marec', 'Apríl', 'Máj', 'Jún', 'Júl', 'August', 'September', 'Október', 'November', 'December'];
-
-        return $m[$d->month].' '.$d->year;
+        // podľa jazyka (web po slovensky, appka podľa zariadenia)
+        return __('gros.months')[$d->month].' '.$d->year;
     }
 
     /** @return array<string, mixed> */

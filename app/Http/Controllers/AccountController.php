@@ -12,7 +12,8 @@ class AccountController extends Controller
 {
     public function index(Request $request): Response
     {
-        $accounts = $request->user()->accounts()->orderByDesc('balance')->get();
+        $accounts = $request->user()->accounts()->orderByDesc('balance')->get()
+            ->each(fn (Account $a) => $a->withTypeLabel());
 
         return Inertia::render('gros/Accounts', [
             'accounts' => $accounts,
@@ -40,7 +41,7 @@ class AccountController extends Controller
         $transfersOut = (float) $txns->where('type', 'transfer')->where('account_id', $account->id)->sum('amount');
 
         return Inertia::render('gros/AccountDetail', [
-            'account' => $account,
+            'account' => $account->withTypeLabel(),
             'transactions' => $txns,
             'accounts' => $request->user()->accounts()->orderBy('name')->get(['id', 'name']),
             'income' => $income,

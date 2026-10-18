@@ -48,6 +48,20 @@ class EmergencyFundService
         'poistenia',
         'dane',
         'zdravotná starostlivosť, lekár',
+        // to isté po anglicky (kategórie naseedované v angličtine)
+        'housing',
+        'groceries',
+        'drugstore',
+        'public transport',
+        'fuel',
+        'vehicle insurance',
+        'leasing',
+        'phone, mobile',
+        'child support',
+        'loans, interests',
+        'insurances',
+        'taxes',
+        'health care, doctor',
     ];
 
     public function __construct(

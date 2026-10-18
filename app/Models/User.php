@@ -4,6 +4,7 @@ namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Database\Factories\UserFactory;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
@@ -24,6 +25,9 @@ class User extends Authenticatable
         'name',
         'email',
         'password',
+        'locale',
+        'apple_id',
+        'apple_refresh_token',
         'accent',
         'show_decimals',
         'privacy_mode',
@@ -105,7 +109,27 @@ class User extends Authenticatable
     protected $hidden = [
         'password',
         'remember_token',
+        'apple_id',
+        'apple_refresh_token',
     ];
+
+    /**
+     * Appka podľa has_password vie, či pri zmazaní účtu pýtať heslo
+     * (účty len cez Apple ho nemajú).
+     *
+     * @var list<string>
+     */
+    protected $appends = ['has_password', 'apple'];
+
+    protected function hasPassword(): Attribute
+    {
+        return Attribute::get(fn () => $this->password !== null);
+    }
+
+    protected function apple(): Attribute
+    {
+        return Attribute::get(fn () => $this->apple_id !== null);
+    }
 
     /**
      * Get the attributes that should be cast.
@@ -117,6 +141,7 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            'apple_refresh_token' => 'encrypted',
             'show_decimals' => 'boolean',
             'privacy_mode' => 'boolean',
             'monthly_income' => 'decimal:2',
